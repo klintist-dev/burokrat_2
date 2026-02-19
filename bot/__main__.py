@@ -8,7 +8,7 @@ from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
 
 from bot.config_reader import get_config
-
+from bot.handlers import router
 
 async def main():
     # 1. Получаем настройки (токен, имя и т.д.)
@@ -22,6 +22,7 @@ async def main():
 
     # 3. Создаём диспетчер (главный диспетчер, который раздаёт команды)
     dp = Dispatcher()
+    dp.include_router(router)
 
     # 4. Запускаем
     print(f"🚀 {config.bot_name} запущен!")
