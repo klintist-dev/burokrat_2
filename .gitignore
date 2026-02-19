@@ -1,29 +1,27 @@
-# Секреты — НИ В КОЕМ СЛУЧАЕ НЕ КОММИТИТЬ!
+# Secrets — NEVER commit!
 .env
 .env.local
 *.env
 
-# Виртуальное окружение — слишком большое, не нужно в Git
+# Virtual environment
 venv/
 .venv/
 env/
 ENV/
+__pycache__/
+*.pyc
 
-# Папки с настройками IDE (PyCharm, VS Code)
+# IDE
 .idea/
 .vscode/
 
-# Кэш Python — служебные файлы
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-
-# Логи и временные файлы
-*.log
-*.tmp
-*.temp
-
-# Файлы ОС (Mac, Windows)
+# OS files
 .DS_Store
 Thumbs.db
+
+# Logs
+*.log
+*.tmp
+
+# Project specific
+test_config.py
