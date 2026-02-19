@@ -1,0 +1,29 @@
+# Секреты — НИ В КОЕМ СЛУЧАЕ НЕ КОММИТИТЬ!
+.env
+.env.local
+*.env
+
+# Виртуальное окружение — слишком большое, не нужно в Git
+venv/
+.venv/
+env/
+ENV/
+
+# Папки с настройками IDE (PyCharm, VS Code)
+.idea/
+.vscode/
+
+# Кэш Python — служебные файлы
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Логи и временные файлы
+*.log
+*.tmp
+*.temp
+
+# Файлы ОС (Mac, Windows)
+.DS_Store
+Thumbs.db
