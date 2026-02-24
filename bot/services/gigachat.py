@@ -1,0 +1,134 @@
+# bot/services/gigachat.py
+import os
+from gigachat import GigaChat
+from dotenv import load_dotenv
+from bot.config_reader import get_config
+
+# Загружаем .env
+load_dotenv()
+
+
+class GigaChatInnAssistant:
+    """Специалист только по ИНН и организациям"""
+
+    def __init__(self):
+        # Пробуем разные способы получить ключ
+        config = get_config()
+
+        # Способ 1: из конфига (через .env с приставкой BOT_)
+        try:
+            self.api_key = config.gigachat_api_key.get_secret_value()
+            print("🔑 Ключ получен из config")
+        except:
+            # Способ 2: напрямую из переменных окружения
+            self.api_key = os.getenv("GIGACHAT_API_KEY") or os.getenv("BOT_GIGACHAT_API_KEY")
+            print("🔑 Ключ получен из os.getenv")
+
+        self.client = None
+        self.available = False
+
+        if self.api_key:
+            try:
+                self.client = GigaChat(
+                    credentials=self.api_key,
+                    verify_ssl_certs=False,
+                    model="GigaChat-MAX",
+                    temperature=0.1
+                )
+                self.available = True
+                print("✅ GigaChat (поиск по ИНН) готов к работе!")
+            except Exception as e:
+                print(f"❌ Ошибка инициализации GigaChat: {e}")
+        else:
+            print("❌ Ключ GigaChat не найден!")
+
+    async def find_inn_by_name(self, company_name: str) -> str:
+        """Ищет ИНН по названию организации"""
+        if not self.available:
+            return "❌ GigaChat не настроен. Добавьте ключ в .env"
+
+        prompt = f"""Ты — специалист по поиску ИНН организаций.
+Найди ИНН организации с названием "{company_name}".
+Отвечай ТОЛЬКО ИНН (10 или 12 цифр), без лишних слов.
+Если не знаешь — напиши "Не найдено"."""
+
+        try:
+            response = self.client.chat(prompt)
+            answer = response.choices[0].message.content.strip()
+
+            if answer.isdigit() and len(answer) in (10, 12):
+                return f"✅ ИНН организации **{company_name}**: `{answer}`"
+            elif "Не найдено" in answer:
+                return f"❌ Организация «{company_name}» не найдена"
+            else:
+                return f"❌ Не удалось найти ИНН. Попробуйте уточнить название."
+        except Exception as e:
+            return f"❌ Ошибка: {e}"
+
+    async def find_name_by_inn(self, inn: str) -> str:
+        """Ищет название организации по ИНН"""
+        if not self.available:
+            return "❌ GigaChat не настроен"
+
+        if not (inn.isdigit() and len(inn) in (10, 12)):
+            return "❌ ИНН должен содержать 10 или 12 цифр"
+
+        prompt = f"""Ты — специалист по поиску организаций по ИНН.
+Найди название организации с ИНН {inn}.
+Отвечай ТОЛЬКО названием организации, без лишних слов.
+Если не знаешь — напиши "Не найдено"."""
+
+        try:
+            response = self.client.chat(prompt)
+            answer = response.choices[0].message.content.strip()
+
+            if "Не найдено" in answer:
+                return f"❌ Организация с ИНН {inn} не найдена"
+            elif len(answer) > 3:
+                return f"✅ Название:\n\n{answer}"
+            else:
+                return f"❌ Не удалось найти организацию"
+        except Exception as e:
+            return f"❌ Ошибка: {e}"
+
+    async def ask_question(self, question: str) -> str:
+        """Отвечает на общие вопросы"""
+
+        if not self.available:
+            return "❌ GigaChat не настроен"
+
+        prompt = f"""Ты — полезный помощник. Ответь на вопрос пользователя максимально подробно и понятно.
+
+    Вопрос: {question}
+
+    Ответ напиши на русском языке, структурированно, с примерами если уместно."""
+
+        try:
+            response = self.client.chat(prompt)
+            answer = response.choices[0].message.content.strip()
+            return f"💬 **Ответ:**\n\n{answer}"
+        except Exception as e:
+            return f"❌ Ошибка: {e}"
+
+    async def create_document(self, description: str) -> str:
+        """Составляет документ по описанию"""
+
+        if not self.available:
+            return "❌ GigaChat не настроен"
+
+        prompt = f"""Ты — помощник по составлению документов. На основе описания составь готовый документ.
+
+    Описание: {description}
+
+    Составь документ в правильном формате, с нужными разделами, датами и подписями. 
+    Используй официально-деловой стиль."""
+
+        try:
+            response = self.client.chat(prompt)
+            document = response.choices[0].message.content.strip()
+            return f"✍️ **Готовый документ:**\n\n{document}"
+        except Exception as e:
+            return f"❌ Ошибка: {e}"
+
+
+gigachat_inn = GigaChatInnAssistant()

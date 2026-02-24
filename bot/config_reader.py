@@ -9,6 +9,7 @@ class BotConfig(BaseSettings):
     admin_id: int  # Твой Telegram ID
     bot_name: str = "БюрократЪ 2.0"  # Имя бота (можно поменять)
     debug: bool = False
+    gigachat_api_key: SecretStr
 
     class Config:
         env_file = ".env"  # Где лежат секреты

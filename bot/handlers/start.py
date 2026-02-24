@@ -2,7 +2,7 @@
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.filters import Command
 from aiogram.utils.formatting import Text, Bold, Italic
-
+from bot.keyboards import main_keyboard
 
 async def cmd_start(message: Message):
     """Приветственное сообщение с кнопками"""
@@ -29,30 +29,34 @@ async def cmd_start(message: Message):
         "Я ", Italic("БюрократЪ 2.0"), " — ваш информационный помощник.\n\n",
 
         Bold("📋 Что я умею:\n"),
-        "• 🔍 Находить ИНН по названию организации\n",
-        "• 🏢 Находить название организации по ИНН\n",
-        "• ❓ Помогать с вопросами\n\n",
+        "• 🔍 Находить ИНН по названию организации (через парсинг)\n",
+        "• 🏢 Находить название организации по ИНН (через парсинг)\n",
+        "• 💬 Задать вопрос GigaChat\n",
+        "• ✍️ Составить документ\n\n",
 
         "👇 Выберите действие на клавиатуре:"
     )
 
     # 3. СОЗДАЁМ КНОПКИ
-    button_inn_by_name = KeyboardButton(text="🔍 Узнать ИНН по названию")
-    button_name_by_inn = KeyboardButton(text="🏢 Узнать название по ИНН")
-    button_help = KeyboardButton(text="❓ Помощь")
+    # button_inn_by_name = KeyboardButton(text="🔍 Узнать ИНН по названию")
+    # button_name_by_inn = KeyboardButton(text="🏢 Узнать название по ИНН")
+    # button_ask = KeyboardButton(text="💬 Задать вопрос GigaChat")
+    # button_doc = KeyboardButton(text="✍️ Составить документ")
 
-    keyboard = ReplyKeyboardMarkup(
-        keyboard=[
-            [button_inn_by_name],
-            [button_name_by_inn],
-            [button_help]
-        ],
-        resize_keyboard=True,
-        input_field_placeholder="Выберите действие..."
-    )
+    # keyboard = ReplyKeyboardMarkup(
+    #     keyboard=[
+    #         [button_inn_by_name],
+    #         [button_name_by_inn],
+    #         [button_ask],
+    #         [button_doc]
+    #     ],
+    #     resize_keyboard=True,
+    #     input_field_placeholder="Выберите действие..."
+    # )
 
     # 4. ОТПРАВЛЯЕМ
     await message.answer(
         **content.as_kwargs(),
-        reply_markup=keyboard
+        # reply_markup=keyboard
+        reply_markup=main_keyboard  # 👈 ПРИКРЕПЛЯЕМ КЛАВИАТУРУ
     )
