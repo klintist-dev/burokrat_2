@@ -1,17 +1,18 @@
 # bot/handlers/buttons.py
-from aiogram.types import Message
+from aiogram.types import Message, FSInputFile
 from aiogram.utils.formatting import Text as FText, Bold, Italic
 from bot.services.gigachat import gigachat_inn
 from bot.keyboards import main_keyboard
-from bot.parsers import find_inn_by_name, find_name_by_inn, find_inn_by_name_with_region
+from bot.parsers import find_inn_by_name, find_inn_by_name_with_region, get_egrul_extract
+import os
 
-# Хранилище для временных данных (что ищет пользователь)
-user_search_type = {}  # {user_id: "name_step1" или "name_step2" или "inn" или "ask" или "doc"}
-user_search_data = {}  # {user_id: {"company_name": "..."}} для хранения названия
+# Хранилище для временных данных
+user_search_type = {}
+user_search_data = {}
 
 
 async def handle_inn_by_name(message: Message):
-    """Обработчик кнопки '🔍 Узнать ИНН по названию'"""
+    """Обработчик кнопки '🔍 Найти ИНН по названию'"""
     user_id = message.from_user.id
     user_search_type[user_id] = "name_step1"
 
@@ -23,17 +24,19 @@ async def handle_inn_by_name(message: Message):
     await message.answer(**content.as_kwargs())
 
 
-async def handle_name_by_inn(message: Message):
-    """Обработчик кнопки '🏢 Узнать название по ИНН'"""
+async def handle_extract_by_inn(message: Message):
+    """Обработчик кнопки '📄 Выписка из ЕГРЮЛ (официально)'"""
     user_id = message.from_user.id
-    user_search_type[user_id] = "inn"
+    user_search_type[user_id] = "extract"
 
-    content = FText(
-        Bold("🏢 Поиск названия по ИНН"), "\n\n",
-        "Введите **ИНН организации**, и я найду её название.\n\n",
-        Italic("Например: 7707083893, 7728168971, 4707013298")
+    await message.answer(
+        "📄 <b>Получение выписки из ЕГРЮЛ</b>\n\n"
+        "Введите <b>ИНН организации</b>, и я пришлю ссылку на официальную выписку с сайта "
+        '<a href="https://egrul.nalog.ru">ФНС России</a>.\n\n'
+        "<i>Например: 4707013298, 7707083893</i>\n\n"
+        "<i>Выписка придёт в формате PDF по ссылке</i>",
+        parse_mode="HTML"
     )
-    await message.answer(**content.as_kwargs())
 
 
 async def handle_ask(message: Message):
@@ -64,16 +67,19 @@ async def handle_doc(message: Message):
 
 async def handle_help(message: Message):
     """Обработчик кнопки '❓ Помощь'"""
-    content = FText(
-        Bold("❓ Помощь"), "\n\n",
-        "Я умею:\n",
-        "🔍 **Находить ИНН по названию** (можно указать регион)\n",
-        "🏢 **Находить название по ИНН**\n",
-        "💬 **Отвечать на вопросы** (GigaChat)\n",
-        "✍️ **Составлять документы** (GigaChat)\n\n",
-        "Просто выберите нужную кнопку и следуйте инструкциям."
+    await message.answer(
+        "❓ <b>Помощь</b>\n\n"
+        "Я умею:\n"
+        "🔍 <b>Найти ИНН по названию</b> (с учётом региона)\n"
+        "📄 <b>Получить ссылку на выписку из ЕГРЮЛ</b> (официальный PDF)\n"
+        "💬 <b>Отвечать на вопросы</b> (GigaChat)\n"
+        "✍️ <b>Составлять документы</b> (GigaChat)\n\n"
+        "📌 <b>Ссылки:</b>\n"
+        '• <a href="https://www.nalog.ru">ФНС России</a>\n'
+        '• <a href="https://egrul.nalog.ru">Поиск по ЕГРЮЛ</a>\n\n'
+        "Просто выберите нужную кнопку и следуйте инструкциям.",
+        parse_mode="HTML"
     )
-    await message.answer(**content.as_kwargs())
 
 
 async def handle_user_input(message: Message):
@@ -101,23 +107,20 @@ async def handle_user_input(message: Message):
     ###########################################################################
 
     if search_type == "name_step1":
-        # ШАГ 1: Пользователь ввёл название организации
         user_search_data[user_id] = {"company_name": text}
         user_search_type[user_id] = "name_step2"
 
-        # Спрашиваем регион
-        content = FText(
-            Bold("📍 Укажите код региона"), "\n\n",
-            "Введите **код региона** (2 цифры) для уточнения поиска:\n\n",
-            Italic("Например: 47 для Ленинградской области\n"
-                   "77 для Москвы\n"
-                   "78 для Санкт-Петербурга\n\n"
-                   "Или отправьте прочерк «-», если регион не важен")
+        await message.answer(
+            "📍 <b>Укажите код региона</b>\n\n"
+            "Введите <b>код региона</b> (2 цифры) для уточнения поиска:\n\n"
+            "<i>Например: 47 для Ленинградской области\n"
+            "77 для Москвы\n"
+            "78 для Санкт-Петербурга</i>\n\n"
+            "<i>Или отправьте прочерк «-», если регион не важен</i>",
+            parse_mode="HTML"
         )
-        await message.answer(**content.as_kwargs())
 
     elif search_type == "name_step2":
-        # ШАГ 2: Пользователь ввёл код региона
         saved_data = user_search_data.get(user_id, {})
         company_name = saved_data.get("company_name", "")
 
@@ -128,14 +131,11 @@ async def handle_user_input(message: Message):
                 del user_search_data[user_id]
             return
 
-        # Определяем, хочет ли пользователь указать регион
         region_code = text if text not in ['-', 'любой', 'пропустить', 'нет'] else None
-
-        # Отправляем сообщение о начале поиска
         region_text = region_code if region_code else "вся Россия"
+
         wait_msg = await message.answer(f"🔍 Ищу организацию '{company_name}' в регионе {region_text}...")
 
-        # 👇 ИСПОЛЬЗУЕМ НОВУЮ ФУНКЦИЮ С РЕГИОНОМ!
         if region_code:
             result = await find_inn_by_name_with_region(company_name, region_code)
         else:
@@ -144,16 +144,15 @@ async def handle_user_input(message: Message):
         await wait_msg.delete()
         await message.answer(result, parse_mode=None, reply_markup=main_keyboard)
 
-        # Очищаем данные
         del user_search_type[user_id]
         if user_id in user_search_data:
             del user_search_data[user_id]
 
     ###########################################################################
-    # ПОИСК НАЗВАНИЯ ПО ИНН (1 ШАГ)
+    # ПОЛУЧЕНИЕ ВЫПИСКИ ПО ИНН (1 ШАГ) - РАБОЧАЯ ВЕРСИЯ СО ССЫЛКОЙ
     ###########################################################################
 
-    elif search_type == "inn":
+    elif search_type == "extract":
         if not text.isdigit() or len(text) not in (10, 12):
             await message.answer(
                 "❌ ИНН должен содержать 10 или 12 цифр.\nПопробуйте ещё раз:",
@@ -161,10 +160,26 @@ async def handle_user_input(message: Message):
             )
             return
 
-        wait_msg = await message.answer("🔍 Ищу название по ИНН...")
-        result = await find_name_by_inn(text)
+        wait_msg = await message.answer(
+            "📄 <b>Запрашиваю выписку...</b>\n"
+            "<i>Обычно это занимает 10-20 секунд</i>",
+            parse_mode="HTML"
+        )
+
+        result = await get_egrul_extract(text)
         await wait_msg.delete()
-        await message.answer(result, parse_mode=None, reply_markup=main_keyboard)
+
+        if 'error' in result:
+            await message.answer(f"❌ {result['error']}", reply_markup=main_keyboard)
+        else:
+            # Отправляем сообщение со ссылкой и инструкцией
+            await message.answer(
+                result['message'],
+                parse_mode="Markdown",
+                reply_markup=main_keyboard,
+                disable_web_page_preview=True
+            )
+
         del user_search_type[user_id]
 
     ###########################################################################

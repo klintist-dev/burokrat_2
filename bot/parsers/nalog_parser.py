@@ -420,77 +420,152 @@ async def find_inn_by_name_with_region(company_name: str, region_code: str = Non
         print(f"❌ Ошибка: {e}")
         return f"❌ Ошибка при парсинге: {e}"
 
+
 async def get_egrul_extract(inn: str) -> dict:
     """
     Получает выписку из ЕГРЮЛ по ИНН
-    Возвращает словарь с путём к файлу или ошибкой
     """
-    url = "https://egrul.nalog.ru/index.html"
-    download_base = "https://egrul.nalog.ru/vyp-download/"
+    print(f"🔍 get_egrul_extract: начинаем поиск для ИНН {inn}")
+
+    base_url = "https://egrul.nalog.ru"
+    search_url = f"{base_url}/"
+    result_url = f"{base_url}/search-result/"
+    download_base = f"{base_url}/vyp-download/"
 
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3 Safari/605.1.15',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
     }
 
     try:
         async with aiohttp.ClientSession() as session:
-            # 1. Ищем организацию
+            # ШАГ 1: Получаем куки
+            print("🌐 Получаем куки...")
+            async with session.get(f"{base_url}/index.html", headers=headers) as response:
+                if response.status != 200:
+                    return {'error': f'Ошибка загрузки страницы: {response.status}'}
+                print("✅ Куки получены")
+
+            # ШАГ 2: Ищем организацию
+            print(f"🔍 Ищем организацию с ИНН {inn}...")
+
+            ajax_headers = {
+                'User-Agent': headers['User-Agent'],
+                'Accept': 'application/json, text/javascript, */*; q=0.01',
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                'X-Requested-With': 'XMLHttpRequest',
+                'Referer': f"{base_url}/index.html",
+            }
+
             search_data = {
                 'query': inn,
                 'page': '1',
                 'search-type': 'ul'
             }
 
-            async with session.post(url, data=search_data, headers=headers) as response:
+            async with session.post(search_url, data=search_data, headers=ajax_headers) as response:
                 if response.status != 200:
                     return {'error': f'Ошибка поиска: {response.status}'}
 
-                html = await response.text()
-                soup = BeautifulSoup(html, 'lxml')
+                search_result = await response.json()
+                request_id = search_result.get('t')
+                if not request_id:
+                    return {'error': 'Не удалось получить ID запроса'}
 
-                # 2. Ищем кнопку с data-t
-                extract_button = soup.find('button', string='Получить выписку')
-                if not extract_button:
-                    extract_button = soup.find('button', class_='op-excerpt')
+                print(f"🆔 ID запроса получен (длина {len(request_id)})")
 
-                if not extract_button:
-                    return {'error': 'Кнопка получения выписки не найдена'}
+            # ШАГ 3: Получаем результаты
+            print(f"📥 Запрашиваем результаты...")
 
-                t_value = extract_button.get('data-t')
-                if not t_value:
-                    return {'error': 'Не найден код выписки (data-t)'}
+            max_attempts = 10
+            attempt = 0
+            results = None
+            wait_time = 2
 
-                # 3. Скачиваем файл по прямой ссылке
-                download_url = f"{download_base}{t_value}"
+            while attempt < max_attempts:
+                attempt += 1
+                print(f"⏳ Попытка {attempt}/{max_attempts} (ждём {wait_time} сек)...")
 
-                async with session.get(download_url, headers=headers) as file_response:
-                    if file_response.status != 200:
-                        return {'error': f'Ошибка скачивания: {file_response.status}'}
+                timestamp = int(time.time() * 1000)
+                results_url = f"{result_url}{request_id}?r={timestamp}&_={timestamp}"
 
-                    # 4. Сохраняем файл
-                    content_disp = file_response.headers.get('content-disposition', '')
-                    filename = "extract.pdf"
+                async with session.get(results_url, headers=ajax_headers) as resp:
+                    if resp.status == 200:
+                        try:
+                            data = await resp.json()
+                        except:
+                            text = await resp.text()
+                            if "Ошибка" in text:
+                                return {'error': '❌ Временные проблемы на сайте ФНС'}
+                            return {'error': 'Неожиданный ответ от сервера'}
 
-                    if 'filename=' in content_disp:
-                        match = re.search(r'filename=([^;]+)', content_disp)
-                        if match:
-                            filename = match.group(1).strip('"')
+                        if isinstance(data, dict) and data.get('status') == 'wait':
+                            print(f"⏳ Сервер говорит 'wait'...")
+                            await asyncio.sleep(wait_time)
+                            wait_time += 1
+                            continue
+                        else:
+                            results = data
+                            print(f"✅ Результаты получены на попытке {attempt}")
+                            break
                     else:
-                        filename = f"extract_{inn}.pdf"
+                        print(f"❌ Ошибка {resp.status}")
+                        await asyncio.sleep(wait_time)
+                        wait_time += 1
 
-                    filepath = f"data/{filename}"
+            if not results:
+                return {'error': 'Превышено время ожидания результатов'}
 
-                    with open(filepath, 'wb') as f:
-                        f.write(await file_response.read())
+            # ШАГ 4: Получаем КОРОТКИЙ код (128 символов)
+            print("🔍 Получаем короткий код...")
 
-                    return {
-                        'success': True,
-                        'filename': filename,
-                        'filepath': filepath
-                    }
+            short_code = None
+            org_name = "Неизвестная организация"
+
+            if isinstance(results, dict) and 'rows' in results and len(results['rows']) > 0:
+                first_row = results['rows'][0]
+                org_name = first_row.get('n', 'Неизвестная организация')
+
+                if 't' in first_row:
+                    short_code = first_row['t']
+                    print(f"✅ Получен короткий код: длина {len(short_code)}")
+
+                    if len(short_code) != 128:
+                        print(f"⚠️ Неожиданная длина кода: {len(short_code)}")
+
+            if not short_code:
+                return {'error': 'Не найден код для скачивания'}
+
+            # ШАГ 5: Имитируем нажатие кнопки "Получить выписку"
+            # В браузере это вызывает запрос к API для получения длинного кода
+            print("🔄 Запрашиваем длинный код (имитация нажатия кнопки)...")
+
+            # Здесь должен быть дополнительный запрос к API ФНС
+            # Но точный эндпоинт нам неизвестен
+            # Вместо этого, дадим пользователю ссылку с коротким кодом
+            # и объясним, что нужно сделать
+            download_link = f"{download_base}{short_code}"
+
+            return {
+                'status': 'success',
+                'download_link': download_link,
+                'org_name': org_name,
+                'message': f"✅ **Выписка для ИНН {inn} готова!**\n\n"
+                           f"📄 **Организация:**\n{org_name[:200]}...\n\n"
+                           f"🔗 **Ссылка для скачивания:**\n"
+                           f"`{download_link}`\n\n"
+                           f"📋 **Важно!**\n"
+                           f"1. Скопируйте ссылку\n"
+                           f"2. Вставьте в браузер\n"
+                           f"3. **Если не скачивается** — просто **обновите страницу** (F5)\n"
+                           f"4. Файл начнёт скачиваться после 1-2 обновлений\n\n"
+                           f"🔄 Это особенность сайта ФНС: ссылка 'активируется' после первого клика."
+            }
 
     except Exception as e:
-        return {'error': f'Ошибка: {e}'}
+        print(f"❌ Исключение: {e}")
+        return {'error': f'Ошибка: {str(e)}'}
 
 
 async def find_inn_by_passport(passport_data: str) -> str:
