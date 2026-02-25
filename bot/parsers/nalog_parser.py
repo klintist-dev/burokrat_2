@@ -3,6 +3,7 @@ import aiohttp
 from bs4 import BeautifulSoup
 import re
 import asyncio
+import time
 
 
 async def find_inn_by_name(company_name: str) -> str:
@@ -67,7 +68,11 @@ async def find_inn_by_name(company_name: str) -> str:
                     attempt += 1
                     print(f"⏳ Попытка {attempt}/{max_attempts} (ждём {wait_time} сек)...")
 
-                    async with session.get(f"{base_url}/search-result/{request_id}", headers=headers) as resp:
+                    # 👇 ИСПРАВЛЕННЫЙ КОД С ПАРАМЕТРАМИ r и _
+                    timestamp = int(time.time() * 1000)  # текущее время в миллисекундах
+                    results_url = f"{base_url}/search-result/{request_id}?r={timestamp}&_={timestamp}"
+
+                    async with session.get(results_url, headers=headers) as resp:
                         if resp.status == 200:
                             data = await resp.json()
 
@@ -107,8 +112,8 @@ async def find_inn_by_name(company_name: str) -> str:
                         # Сокращаем название (первые 100 символов)
                         if 'n' in row:
                             name = row['n']
-                            if len(name) > 100:
-                                name = name[:100] + "..."
+                            if len(name) > 200:
+                                name = name[:200] + "..."
                             org_info.append(f"**{i}. {name}**")
 
                         # ИНН обязательно
@@ -293,6 +298,127 @@ async def find_name_by_inn(inn: str) -> str:
         print(f"❌ Исключение: {e}")
         return f"❌ Ошибка при парсинге: {e}"
 
+
+async def find_inn_by_name_with_region(company_name: str, region_code: str = None) -> str:
+    """
+    Ищет ИНН организации по названию на сайте nalog.ru
+    region_code - код региона (например "47" для Ленинградской области)
+    """
+    base_url = "https://egrul.nalog.ru"
+
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json, text/javascript, */*; q=0.01',
+        'X-Requested-With': 'XMLHttpRequest'
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            # ШАГ 1: Получаем куки
+            print("🌐 Получаем куки...")
+            async with session.get(f"{base_url}/index.html", headers=headers) as response:
+                if response.status != 200:
+                    return f"❌ Ошибка загрузки страницы: {response.status}"
+                print("✅ Куки получены")
+
+            # ШАГ 2: Готовим данные для поиска
+            search_data = {
+                'query': company_name,
+                'page': '1',
+                'search-type': 'ul'
+            }
+
+            # Если указан код региона, добавляем его
+            if region_code:
+                search_data['region'] = region_code
+                print(f"📍 Ищем в регионе с кодом: {region_code}")
+
+            # ШАГ 3: Отправляем поисковый запрос
+            print(f"🔍 Ищем организацию: '{company_name}'")
+            async with session.post(f"{base_url}/", data=search_data, headers=headers) as response:
+                if response.status != 200:
+                    return f"❌ Ошибка поиска: {response.status}"
+
+                search_result = await response.json()
+                print(f"📦 Ответ на поиск: {search_result}")
+
+                # Получаем ID запроса
+                request_id = search_result.get('t') if isinstance(search_result, dict) else None
+                if not request_id:
+                    return "❌ Не удалось получить ID запроса"
+
+                print(f"🆔 Получен ID запроса: {request_id[:50]}...")
+
+                # ШАГ 4: Получаем результаты
+                print(f"📥 Запрашиваем результаты...")
+
+                max_attempts = 10
+                attempt = 0
+                results = None
+                wait_time = 1
+
+                while attempt < max_attempts:
+                    attempt += 1
+                    print(f"⏳ Попытка {attempt}/{max_attempts} (ждём {wait_time} сек)...")
+
+                    timestamp = int(time.time() * 1000)
+                    results_url = f"{base_url}/search-result/{request_id}?r={timestamp}&_={timestamp}"
+
+                    async with session.get(results_url, headers=headers) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+
+                            if 'status' in data and data['status'] == 'wait':
+                                print(f"⏳ Сервер говорит 'wait'...")
+                                await asyncio.sleep(wait_time)
+                                wait_time += 1
+                                continue
+                            else:
+                                results = data
+                                print(f"✅ Результаты получены на попытке {attempt}")
+                                break
+                        else:
+                            return f"❌ Ошибка получения результатов: {resp.status}"
+
+                if not results:
+                    return "❌ Время ожидания истекло"
+
+                # ШАГ 5: Парсим результаты
+                if 'rows' in results and len(results['rows']) > 0:
+                    total = len(results['rows'])
+                    output = f"📋 **Найдено организаций: {total}**\n\n"
+
+                    if region_code:
+                        output += f"📍 Регион: {region_code}\n\n"
+
+                    for i, row in enumerate(results['rows'][:10], 1):
+                        name = row.get('n', 'Без названия')
+                        inn = row.get('i', '')
+                        ogrn = row.get('o', '')
+                        date = row.get('r', '')
+
+                        if len(name) > 200:
+                            name = name[:200] + "..."
+                        output += f"**{i}. {name}**\n"
+                        if inn:
+                            output += f"ИНН: `{inn}`\n"
+                        if ogrn:
+                            output += f"ОГРН: {ogrn}\n"
+                        if date:
+                            output += f"Дата: {date}\n"
+                        output += "\n"
+
+                    if total > 10:
+                        output += f"📌 Показаны первые 10 из {total}. Уточните запрос."
+
+                    return output
+
+                return "❌ Организации не найдены"
+
+    except Exception as e:
+        print(f"❌ Ошибка: {e}")
+        return f"❌ Ошибка при парсинге: {e}"
 
 async def get_egrul_extract(inn: str) -> dict:
     """
