@@ -6,6 +6,8 @@ from bot.keyboards import main_keyboard
 from bot.parsers import find_inn_by_name, find_inn_by_name_with_region, get_egrul_extract
 import os
 
+EXIT_COMMANDS = ["выход", "exit", "стоп", "stop", "меню", "menu", "завершить", "назад"]
+
 # Хранилище для временных данных
 user_search_type = {}
 user_search_data = {}
@@ -187,11 +189,20 @@ async def handle_user_input(message: Message):
     ###########################################################################
 
     elif search_type == "ask":
+        # Проверяем, не хочет ли пользователь выйти
+        if text.lower() in EXIT_COMMANDS:
+            del user_search_type[user_id]
+            await message.answer(
+                "✅ Вы вышли из режима вопросов. Выберите действие на клавиатуре.",
+                reply_markup=main_keyboard
+            )
+            return
+
         wait_msg = await message.answer("🤔 GigaChat думает над ответом...")
-        result = await gigachat_inn.ask_question(text)
+        result = await gigachat_inn.ask_question(user_id, text)
         await wait_msg.delete()
         await message.answer(result, parse_mode=None, reply_markup=main_keyboard)
-        del user_search_type[user_id]
+        # del user_search_type[user_id]  # оставляем закомментированным
 
     ###########################################################################
     # СОСТАВЛЕНИЕ ДОКУМЕНТОВ (1 ШАГ)
