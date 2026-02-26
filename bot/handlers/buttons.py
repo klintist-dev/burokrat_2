@@ -201,7 +201,10 @@ async def handle_user_input(message: Message):
         wait_msg = await message.answer("🤔 GigaChat думает над ответом...")
         result = await gigachat_inn.ask_question(user_id, text)
         await wait_msg.delete()
-        await message.answer(result, parse_mode=None, reply_markup=main_keyboard)
+        # Добавляем напоминание о клавиатуре и подсказку
+        full_response = f"{result}\n\n---\n💡 **Как продолжить:**\n• Чтобы задать ещё вопрос, просто напишите его\n• Чтобы выйти из режима, напишите **«выход»** или **«стоп»**\n• Или выберите действие на клавиатуре ниже"
+        await message.answer(full_response, parse_mode="Markdown", reply_markup=main_keyboard)
+        # НЕ удаляем состояние, чтобы диалог продолжался
         # del user_search_type[user_id]  # оставляем закомментированным
 
     ###########################################################################
@@ -212,10 +215,7 @@ async def handle_user_input(message: Message):
         wait_msg = await message.answer("📄 Составляю документ, это займёт несколько секунд...")
         result = await gigachat_inn.create_document(text)
         await wait_msg.delete()
-        await message.answer(result, parse_mode=None, reply_markup=main_keyboard)
-        del user_search_type[user_id]
-
-    else:
-        print(f"❌ Неизвестный тип поиска: {search_type}")
-        await message.answer("❌ Что-то пошло не так. Начните заново.", reply_markup=main_keyboard)
+        # Добавляем инструкцию после документа
+        full_response = f"{result}\n\n---\n✅ **Документ готов!**\n\n👉 Чтобы составить ещё один документ, нажмите кнопку **«✍️ Составить документ»**\n👉 Или выберите другое действие на клавиатуре ниже."
+        await message.answer(full_response, parse_mode="Markdown", reply_markup=main_keyboard)
         del user_search_type[user_id]
