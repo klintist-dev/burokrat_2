@@ -10,8 +10,10 @@ button_help = KeyboardButton(text="❓ Помощь")
 
 main_keyboard = ReplyKeyboardMarkup(
     keyboard=[
-        [button_inn_by_name, button_extract],
-        [button_ask, button_doc],
+        [button_inn_by_name],
+        [button_extract],
+        [button_ask],
+        [button_doc],
         [button_help]
     ],
     resize_keyboard=True,
