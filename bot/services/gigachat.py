@@ -14,7 +14,7 @@ class GigaChatInnAssistant:
     def __init__(self):
         # Для хранения истории сообщений по каждому пользователю
         self.user_history = {}  # {user_id: [{"user": вопрос, "bot": ответ}, ...]}
-        self.max_history = 5    # Сколько последних сообщений запоминать
+        self.max_history = 20    # Сколько последних сообщений запоминать
 
         # Пробуем разные способы получить ключ
         config = get_config()
@@ -108,21 +108,27 @@ class GigaChatInnAssistant:
         # Формируем промпт с учётом истории
         history_text = ""
         if recent_history:
-            history_text = "Предыдущие сообщения:\n"
+            history_text = "Вот предыдущие сообщения из этого диалога. Учитывай их при ответе:\n\n"
             for msg in recent_history:
                 history_text += f"Пользователь: {msg['user']}\n"
-                history_text += f"Помощник: {msg['bot']}\n"
-            history_text += "\n"
+                history_text += f"Ты: {msg['bot']}\n"
+            history_text += "\n---\n"
 
-        prompt = f"""{history_text}Ты — полезный помощник. Ответь на вопрос пользователя максимально подробно и понятно.
+        prompt = f"""{history_text}Текущий вопрос пользователя: {question}
 
-Текущий вопрос: {question}
+        ВАЖНО: Отвечай, учитывая предыдущие сообщения. Если вопрос неполный (например, 'население'), отвечай про то, о чём шла речь ранее (например, про Париж).
 
-Ответ напиши на русском языке, структурированно, с примерами если уместно."""
+        Ответ напиши на русском языке."""
 
         try:
             response = self.client.chat(prompt)
             answer = response.choices[0].message.content.strip()
+
+            # Сохраняем в историю
+            self.user_history[user_id].append({
+                "user": question,
+                "bot": answer
+            })
 
             # Сохраняем этот диалог в историю
             self.user_history[user_id].append({
