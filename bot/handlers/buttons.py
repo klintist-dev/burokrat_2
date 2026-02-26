@@ -154,33 +154,80 @@ async def handle_user_input(message: Message):
     # ПОЛУЧЕНИЕ ВЫПИСКИ ПО ИНН (1 ШАГ) - РАБОЧАЯ ВЕРСИЯ СО ССЫЛКОЙ
     ###########################################################################
 
+    ###########################################################################
+
+    # ПОЛУЧЕНИЕ ВЫПИСКИ ПО ИНН (1 ШАГ)
+
+    ###########################################################################
+
     elif search_type == "extract":
+
         if not text.isdigit() or len(text) not in (10, 12):
             await message.answer(
+
                 "❌ ИНН должен содержать 10 или 12 цифр.\nПопробуйте ещё раз:",
+
                 reply_markup=main_keyboard
+
             )
+
             return
 
         wait_msg = await message.answer(
+
             "📄 <b>Запрашиваю выписку...</b>\n"
+
             "<i>Обычно это занимает 10-20 секунд</i>",
+
             parse_mode="HTML"
+
         )
 
         result = await get_egrul_extract(text)
+
         await wait_msg.delete()
 
         if 'error' in result:
+
             await message.answer(f"❌ {result['error']}", reply_markup=main_keyboard)
+
         else:
-            # Отправляем сообщение со ссылкой и инструкцией
-            await message.answer(
-                result['message'],
-                parse_mode="Markdown",
-                reply_markup=main_keyboard,
-                disable_web_page_preview=True
+
+            # Отправляем файл пользователю
+
+            document = FSInputFile(result['filepath'])
+
+            await message.answer_document(
+
+                document,
+
+                caption=(
+
+                    "✅ <b>Выписка получена!</b>\n"
+
+                    f"📄 {result['org_name'][:200]}...\n"
+
+                    '<i>Источник: </i><a href="https://egrul.nalog.ru">ФНС России</a>'
+
+                ),
+
+                parse_mode="HTML",
+
+                reply_markup=main_keyboard
+
             )
+
+            # Удаляем файл после отправки, чтобы не засорять диск
+
+            try:
+
+                os.remove(result['filepath'])
+
+                print(f"🗑️ Файл удалён: {result['filepath']}")
+
+            except Exception as e:
+
+                print(f"⚠️ Не удалось удалить файл: {e}")
 
         del user_search_type[user_id]
 
