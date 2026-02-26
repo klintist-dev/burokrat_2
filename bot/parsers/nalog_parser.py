@@ -4,6 +4,7 @@ from bs4 import BeautifulSoup
 import re
 import asyncio
 import time
+import os
 
 
 async def find_inn_by_name(company_name: str) -> str:
@@ -68,8 +69,7 @@ async def find_inn_by_name(company_name: str) -> str:
                     attempt += 1
                     print(f"⏳ Попытка {attempt}/{max_attempts} (ждём {wait_time} сек)...")
 
-                    # 👇 ИСПРАВЛЕННЫЙ КОД С ПАРАМЕТРАМИ r и _
-                    timestamp = int(time.time() * 1000)  # текущее время в миллисекундах
+                    timestamp = int(time.time() * 1000)
                     results_url = f"{base_url}/search-result/{request_id}?r={timestamp}&_={timestamp}"
 
                     async with session.get(results_url, headers=headers) as resp:
@@ -109,18 +109,15 @@ async def find_inn_by_name(company_name: str) -> str:
                     for i, row in enumerate(results['rows'][:max_show], 1):
                         org_info = []
 
-                        # Сокращаем название (первые 100 символов)
                         if 'n' in row:
                             name = row['n']
                             if len(name) > 200:
                                 name = name[:200] + "..."
                             org_info.append(f"**{i}. {name}**")
 
-                        # ИНН обязательно
                         if 'i' in row:
                             org_info.append(f"ИНН: `{row['i']}`")
 
-                        # Только основные данные (ОГРН и дата)
                         if 'o' in row:
                             org_info.append(f"ОГРН: {row['o']}")
                         if 'r' in row:
@@ -128,7 +125,6 @@ async def find_inn_by_name(company_name: str) -> str:
 
                         output += "\n".join(org_info) + "\n\n"
 
-                        # Проверяем длину сообщения
                         if len(output) > 3500:
                             output += "... (сообщение слишком длинное, показана часть)"
                             break
@@ -162,14 +158,12 @@ async def find_name_by_inn(inn: str) -> str:
 
     try:
         async with aiohttp.ClientSession() as session:
-            # ШАГ 1: Получаем куки
             print("🌐 Получаем куки...")
             async with session.get(f"{base_url}/index.html", headers=headers) as response:
                 if response.status != 200:
                     return f"❌ Ошибка загрузки страницы: {response.status}"
                 print("✅ Куки получены")
 
-            # ШАГ 2: Отправляем поисковый запрос с ИНН
             print(f"🔍 Ищем организацию по ИНН {inn}...")
             search_data = {
                 'query': inn,
@@ -184,7 +178,6 @@ async def find_name_by_inn(inn: str) -> str:
                 search_result = await response.json()
                 print(f"📦 Ответ на поиск: {search_result}")
 
-                # Извлекаем ID запроса
                 request_id = None
                 if isinstance(search_result, dict):
                     if 't' in search_result:
@@ -197,7 +190,6 @@ async def find_name_by_inn(inn: str) -> str:
 
                 print(f"🆔 Получен ID запроса: {request_id[:50]}...")
 
-                # ШАГ 3: Получаем результаты с проверкой статуса
                 print(f"📥 Запрашиваем результаты...")
 
                 max_attempts = 10
@@ -232,21 +224,16 @@ async def find_name_by_inn(inn: str) -> str:
 
                 print(f"📦 Результаты получены")
 
-                # ШАГ 4: Парсим результаты
                 if 'rows' in results and len(results['rows']) > 0:
                     total_results = len(results['rows'])
                     print(f"📊 Всего найдено: {total_results}")
 
                     if total_results == 1:
-                        # Одна организация — показываем подробно
                         row = results['rows'][0]
                         output = f"🏢 **Организация найдена**\n\n"
 
-                        # Название
                         if 'n' in row:
                             output += f"**{row['n']}**\n\n"
-
-                        # Реквизиты
                         if 'i' in row:
                             output += f"ИНН: `{row['i']}`\n"
                         if 'o' in row:
@@ -261,35 +248,24 @@ async def find_name_by_inn(inn: str) -> str:
                             output += f"КПП: {row['c']}\n"
 
                         return output
-
                     else:
-                        # Несколько организаций — показываем кратко
                         output = f"📋 **Найдено организаций: {total_results}**\n\n"
-
-                        # Показываем не больше 5
                         max_show = min(5, total_results)
                         output += f"**Первые {max_show} результатов:**\n\n"
 
                         for i, row in enumerate(results['rows'][:max_show], 1):
-                            # Название (сокращаем)
                             if 'n' in row:
                                 name = row['n']
                                 if len(name) > 80:
                                     name = name[:80] + "..."
                                 output += f"**{i}. {name}**\n"
-
-                            # ИНН
                             if 'i' in row:
                                 output += f"ИНН: `{row['i']}`\n"
-
-                            # ОГРН
                             if 'o' in row:
                                 output += f"ОГРН: {row['o']}\n"
-
                             output += "\n"
 
                         output += f"📌 **Уточните запрос** (добавьте больше цифр ИНН или используйте поиск по названию)."
-
                         return output
 
                 return "❌ Организация с таким ИНН не найдена"
@@ -315,26 +291,22 @@ async def find_inn_by_name_with_region(company_name: str, region_code: str = Non
 
     try:
         async with aiohttp.ClientSession() as session:
-            # ШАГ 1: Получаем куки
             print("🌐 Получаем куки...")
             async with session.get(f"{base_url}/index.html", headers=headers) as response:
                 if response.status != 200:
                     return f"❌ Ошибка загрузки страницы: {response.status}"
                 print("✅ Куки получены")
 
-            # ШАГ 2: Готовим данные для поиска
             search_data = {
                 'query': company_name,
                 'page': '1',
                 'search-type': 'ul'
             }
 
-            # Если указан код региона, добавляем его
             if region_code:
                 search_data['region'] = region_code
                 print(f"📍 Ищем в регионе с кодом: {region_code}")
 
-            # ШАГ 3: Отправляем поисковый запрос
             print(f"🔍 Ищем организацию: '{company_name}'")
             async with session.post(f"{base_url}/", data=search_data, headers=headers) as response:
                 if response.status != 200:
@@ -343,14 +315,12 @@ async def find_inn_by_name_with_region(company_name: str, region_code: str = Non
                 search_result = await response.json()
                 print(f"📦 Ответ на поиск: {search_result}")
 
-                # Получаем ID запроса
                 request_id = search_result.get('t') if isinstance(search_result, dict) else None
                 if not request_id:
                     return "❌ Не удалось получить ID запроса"
 
                 print(f"🆔 Получен ID запроса: {request_id[:50]}...")
 
-                # ШАГ 4: Получаем результаты
                 print(f"📥 Запрашиваем результаты...")
 
                 max_attempts = 10
@@ -384,7 +354,6 @@ async def find_inn_by_name_with_region(company_name: str, region_code: str = Non
                 if not results:
                     return "❌ Время ожидания истекло"
 
-                # ШАГ 5: Парсим результаты
                 if 'rows' in results and len(results['rows']) > 0:
                     total = len(results['rows'])
                     output = f"📋 **Найдено организаций: {total}**\n\n"
@@ -424,12 +393,15 @@ async def find_inn_by_name_with_region(company_name: str, region_code: str = Non
 async def get_egrul_extract(inn: str) -> dict:
     """
     Получает выписку из ЕГРЮЛ по ИНН
+    Возвращает словарь с путём к файлу или ошибкой
     """
     print(f"🔍 get_egrul_extract: начинаем поиск для ИНН {inn}")
 
     base_url = "https://egrul.nalog.ru"
     search_url = f"{base_url}/"
     result_url = f"{base_url}/search-result/"
+    request_url = f"{base_url}/vyp-request/"
+    status_url = f"{base_url}/vyp-status/"
     download_base = f"{base_url}/vyp-download/"
 
     headers = {
@@ -475,7 +447,7 @@ async def get_egrul_extract(inn: str) -> dict:
 
                 print(f"🆔 ID запроса получен (длина {len(request_id)})")
 
-            # ШАГ 3: Получаем результаты
+            # ШАГ 3: Получаем результаты поиска
             print(f"📥 Запрашиваем результаты...")
 
             max_attempts = 10
@@ -517,10 +489,10 @@ async def get_egrul_extract(inn: str) -> dict:
             if not results:
                 return {'error': 'Превышено время ожидания результатов'}
 
-            # ШАГ 4: Получаем КОРОТКИЙ код (128 символов)
-            print("🔍 Получаем короткий код...")
+            # ШАГ 4: Получаем код для скачивания
+            print("🔍 Получаем код для скачивания...")
 
-            short_code = None
+            t_value = None
             org_name = "Неизвестная организация"
 
             if isinstance(results, dict) and 'rows' in results and len(results['rows']) > 0:
@@ -528,43 +500,154 @@ async def get_egrul_extract(inn: str) -> dict:
                 org_name = first_row.get('n', 'Неизвестная организация')
 
                 if 't' in first_row:
-                    short_code = first_row['t']
-                    print(f"✅ Получен короткий код: длина {len(short_code)}")
+                    t_value = first_row['t']
+                    print(f"✅ Найден код в поле 't': длина {len(t_value)}")
 
-                    if len(short_code) != 128:
-                        print(f"⚠️ Неожиданная длина кода: {len(short_code)}")
+                    if len(t_value) < 150:
+                        print(f"⚠️ Короткий код ({len(t_value)}) - выписка возможно ещё не готова")
 
-            if not short_code:
+            if not t_value:
                 return {'error': 'Не найден код для скачивания'}
 
-            # ШАГ 5: Имитируем нажатие кнопки "Получить выписку"
-            # В браузере это вызывает запрос к API для получения длинного кода
-            print("🔄 Запрашиваем длинный код (имитация нажатия кнопки)...")
+            # ШАГ 5: Активируем выписку через vyp-request (как в браузере!)
+            print("🔄 ШАГ 5: Активируем выписку через vyp-request...")
+            request_activate_url = f"{request_url}{t_value}?r=&_={int(time.time()*1000)}"
 
-            # Здесь должен быть дополнительный запрос к API ФНС
-            # Но точный эндпоинт нам неизвестен
-            # Вместо этого, дадим пользователю ссылку с коротким кодом
-            # и объясним, что нужно сделать
-            download_link = f"{download_base}{short_code}"
+            async with session.get(request_activate_url, headers=ajax_headers) as resp:
+                if resp.status == 200:
+                    print("✅ Запрос на активацию отправлен успешно")
+                    try:
+                        activate_data = await resp.json()
+                        print(f"📊 Ответ на активацию: {activate_data}")
+                    except:
+                        print("⚠️ Не удалось распарсить ответ активации (возможно, пустой)")
+                else:
+                    print(f"⚠️ Ошибка при активации: {resp.status}")
+                    # Продолжаем, даже если ошибка - возможно, выписка уже активирована
 
-            return {
-                'status': 'success',
-                'download_link': download_link,
-                'org_name': org_name,
-                'message': f"✅ **Выписка для ИНН {inn} готова!**\n\n"
-                           f"📄 **Организация:**\n{org_name[:200]}...\n\n"
-                           f"🔗 **Ссылка для скачивания:**\n"
-                           f"`{download_link}`\n\n"
-                           f"📋 **Важно!**\n"
-                           f"1. Скопируйте ссылку\n"
-                           f"2. Вставьте в браузер\n"
-                           f"3. **Если не скачивается** — просто **обновите страницу** (F5)\n"
-                           f"4. Файл начнёт скачиваться после 1-2 обновлений\n\n"
-                           f"🔄 Это особенность сайта ФНС: ссылка 'активируется' после первого клика."
+            # ШАГ 6: Проверяем статус через vyp-status
+            print("⏳ ШАГ 6: Проверяем статус выписки...")
+
+            max_status_attempts = 15
+            status_attempt = 0
+            status_wait_time = 2
+            ready = False
+
+            while status_attempt < max_status_attempts and not ready:
+                status_attempt += 1
+                print(f"⏳ Проверка статуса {status_attempt}/{max_status_attempts} (ждём {status_wait_time} сек)...")
+
+                timestamp = int(time.time() * 1000)
+                check_status_url = f"{status_url}{t_value}?r={timestamp}&_={timestamp}"
+
+                async with session.get(check_status_url, headers=ajax_headers) as resp:
+                    if resp.status == 200:
+                        try:
+                            status_data = await resp.json()
+                            print(f"📊 Статус: {status_data}")
+
+                            if status_data.get('status') == 'ready':
+                                print("✅ Выписка готова к скачиванию!")
+                                ready = True
+                                break
+                            elif status_data.get('status') == 'wait':
+                                print(f"⏳ Выписка ещё готовится...")
+                                await asyncio.sleep(status_wait_time)
+                                status_wait_time += 1
+                                continue
+                            else:
+                                print(f"❓ Неизвестный статус: {status_data}")
+                                await asyncio.sleep(status_wait_time)
+                                status_wait_time += 1
+                                continue
+                        except Exception as e:
+                            print(f"❌ Ошибка парсинга статуса: {e}")
+                            await asyncio.sleep(status_wait_time)
+                            status_wait_time += 1
+                            continue
+                    else:
+                        print(f"❌ Ошибка проверки статуса: {resp.status}")
+                        await asyncio.sleep(status_wait_time)
+                        status_wait_time += 1
+
+            if not ready:
+                return {'error': 'Превышено время ожидания готовности выписки'}
+
+            # ШАГ 7: Ждём ещё немного перед скачиванием
+            print("⏳ Ждём 2 секунды перед скачиванием...")
+            await asyncio.sleep(2)
+
+            # ШАГ 8: Скачиваем файл
+            download_link = f"{download_base}{t_value}"
+            print(f"📥 ШАГ 8: Скачиваю файл: {download_link[:100]}...")
+
+            # Заголовки для скачивания PDF
+            download_headers = {
+                'User-Agent': headers['User-Agent'],
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+                'Referer': f"{base_url}/index.html",
+                'Connection': 'keep-alive',
             }
+
+            # Получаем все куки из сессии
+            all_cookies = session.cookie_jar.filter_cookies(f"{base_url}/index.html")
+            cookie_parts = []
+            for key, cookie in all_cookies.items():
+                cookie_parts.append(f"{key}={cookie.value}")
+            if cookie_parts:
+                download_headers['Cookie'] = '; '.join(cookie_parts)
+                print(f"🍪 Передаём куки: {len(cookie_parts)} шт.")
+
+            async with session.get(download_link, headers=download_headers, allow_redirects=True) as file_response:
+                print(f"📋 Статус ответа: {file_response.status}")
+                print(f"📋 Заголовки ответа: {dict(file_response.headers)}")
+
+                if file_response.status == 200:
+                    content = await file_response.read()
+                    print(f"📊 Размер файла: {len(content)} байт")
+
+                    # Проверяем, что это PDF
+                    if len(content) > 1000 and content[:4].startswith(b'%PDF'):
+                        print("✅ Получен валидный PDF")
+
+                        # Получаем имя файла из заголовков
+                        content_disp = file_response.headers.get('content-disposition', '')
+                        filename = "extract.pdf"
+                        if 'filename=' in content_disp:
+                            match = re.search(r'filename=([^;]+)', content_disp)
+                            if match:
+                                filename = match.group(1).strip('"')
+
+                        # Создаём папку data, если её нет
+                        if not os.path.exists('data'):
+                            os.makedirs('data')
+                            print("📁 Создана папка data")
+
+                        filepath = f"data/{filename}"
+                        with open(filepath, 'wb') as f:
+                            f.write(content)
+
+                        print(f"✅ Файл сохранён: {filepath}")
+                        return {
+                            'success': True,
+                            'filename': filename,
+                            'filepath': filepath,
+                            'org_name': org_name
+                        }
+                    else:
+                        print(f"❌ Файл не является PDF или слишком мал")
+                        if len(content) > 0:
+                            print(f"Первые 50 байт: {content[:50]}")
+                        return {'error': 'Получен повреждённый файл'}
+                else:
+                    print(f"❌ Ошибка скачивания: {file_response.status}")
+                    return {'error': f'Ошибка скачивания: {file_response.status}'}
 
     except Exception as e:
         print(f"❌ Исключение: {e}")
+        import traceback
+        traceback.print_exc()
         return {'error': f'Ошибка: {str(e)}'}
 
 
