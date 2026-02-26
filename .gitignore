@@ -25,3 +25,7 @@ Thumbs.db
 
 # Project specific
 test_config.py
+
+# Data files
+data/
+*.pdf
