@@ -12,10 +12,15 @@ from .buttons import (
     handle_user_input
 )
 
+from .admin import cmd_stats  # ⬅️ ДОБАВЬ ЭТУ СТРОКУ
+
 router = Router()
 
 # Команда /start
 router.message.register(cmd_start, Command("start"))
+
+# Команда /stats (только для админа)
+router.message.register(cmd_stats, Command("stats"))  # ⬅️ ДОБАВЬ ЭТУ СТРОКУ
 
 # Кнопки
 router.message.register(handle_inn_by_name, F.text == "🔍 Найти ИНН по названию")

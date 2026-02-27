@@ -5,6 +5,7 @@ from bot.services.gigachat import gigachat_inn
 from bot.keyboards import main_keyboard
 from bot.parsers import find_inn_by_name, find_inn_by_name_with_region, get_egrul_extract
 import os
+from bot.services.statistics import stats
 
 EXIT_COMMANDS = ["выход", "exit", "стоп", "stop", "меню", "menu", "завершить", "назад"]
 
@@ -69,6 +70,9 @@ async def handle_doc(message: Message):
 
 async def handle_help(message: Message):
     """Обработчик кнопки '❓ Помощь'"""
+    user_id = message.from_user.id
+    stats.log_command(user_id, "help")
+
     await message.answer(
         "❓ <b>Помощь</b>\n\n"
         "Я умею:\n"
@@ -91,6 +95,11 @@ async def handle_user_input(message: Message):
     user_id = message.from_user.id
     text = message.text.strip()
 
+    # Логируем пользователя
+    username = message.from_user.username
+    first_name = message.from_user.first_name
+    stats.log_user(user_id, username, first_name)
+
     print(f"📨 Получен текст: '{text}' от пользователя {user_id}")
     print(f"🔍 Состояние до обработки: {user_search_type.get(user_id)}")
     print(f"📦 Сохранённые данные: {user_search_data.get(user_id)}")
@@ -109,6 +118,7 @@ async def handle_user_input(message: Message):
     ###########################################################################
 
     if search_type == "name_step1":
+        stats.log_command(user_id, "inn_search_start")
         user_search_data[user_id] = {"company_name": text}
         user_search_type[user_id] = "name_step2"
 
@@ -123,6 +133,7 @@ async def handle_user_input(message: Message):
         )
 
     elif search_type == "name_step2":
+        stats.log_command(user_id, "inn_search_complete")
         saved_data = user_search_data.get(user_id, {})
         company_name = saved_data.get("company_name", "")
 
@@ -161,6 +172,7 @@ async def handle_user_input(message: Message):
     ###########################################################################
 
     elif search_type == "extract":
+        stats.log_command(user_id, "extract")
 
         if not text.isdigit() or len(text) not in (10, 12):
             await message.answer(
@@ -236,6 +248,7 @@ async def handle_user_input(message: Message):
     ###########################################################################
 
     elif search_type == "ask":
+        stats.log_command(user_id, "ask")
         # Проверяем, не хочет ли пользователь выйти
         if text.lower() in EXIT_COMMANDS:
             del user_search_type[user_id]
@@ -259,6 +272,7 @@ async def handle_user_input(message: Message):
     ###########################################################################
 
     elif search_type == "doc":
+        stats.log_command(user_id, "doc")
         wait_msg = await message.answer("📄 Составляю документ, это займёт несколько секунд...")
         result = await gigachat_inn.create_document(text)
         await wait_msg.delete()
