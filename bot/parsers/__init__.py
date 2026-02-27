@@ -5,7 +5,8 @@ from .nalog_parser import (
     get_egrul_extract,
     find_inn_by_passport,
     check_inn_valid,
-    get_invalid_inn_list
+    get_invalid_inn_list,
+    find_inn_by_name_structured
 )
 
 __all__ = [
@@ -15,5 +16,6 @@ __all__ = [
     'get_egrul_extract',
     'find_inn_by_passport',
     'check_inn_valid',
-    'get_invalid_inn_list'
+    'get_invalid_inn_list',
+    'find_inn_by_name_structured'
 ]

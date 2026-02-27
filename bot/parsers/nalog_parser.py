@@ -862,7 +862,9 @@ async def find_inn_by_name_structured(company_name: str, region_code: str = None
 
                 # Находим лучшее совпадение
                 matcher = TextMatcher()
-                best_match = matcher.get_best_match(company_name, organizations)
+                # Временно убираем best_match, используем ranked
+                ranked = matcher.rank_candidates(company_name, organizations)
+                best_match = ranked[0] if ranked else None
 
                 # Ранжируем все совпадения
                 ranked = matcher.rank_candidates(company_name, organizations)

@@ -24,7 +24,6 @@ def format_search_results(result: dict, original_query: str) -> str:
     Красиво форматирует результаты поиска
     """
     total = result.get('total', 0)
-    best_match = result.get('best_match')
     ranked = result.get('ranked', [])
 
     # Заголовок
@@ -34,56 +33,43 @@ def format_search_results(result: dict, original_query: str) -> str:
         output += f"📍 Регион: {region_display}\n"
     output += "\n"
 
-    # Если есть лучшее совпадение
-    if best_match:
-        output += "✨ **Наилучшее совпадение:**\n\n"
-        output += f"**{best_match['name'][:100]}**\n"
-        output += f"└ ИНН: `{best_match['inn']}`\n"
-        if best_match.get('ogrn'):
-            output += f"└ ОГРН: {best_match['ogrn']}\n"
-        if best_match.get('date'):
-            output += f"└ Дата регистрации: {best_match['date']}\n"
-        if best_match.get('status'):
-            status_emoji = "✅" if best_match['status'] == "действующее" else "❌"
-            output += f"└ Статус: {status_emoji} {best_match['status']}\n"
-
-        # Показываем точность совпадения
-        if best_match.get('match_details'):
-            details = best_match['match_details']
-            if details.get('exact'):
-                output += f"\n✅ **Точное совпадение!**\n\n"
-            else:
-                similarity = int(details.get('similarity', 0) * 100)
-                coverage = int(details.get('coverage', 0) * 100)
-                output += f"\n📊 Схожесть: {similarity}% (совпадение слов: {coverage}%)\n\n"
-    else:
-        output += "🔍 **Похожие организации:**\n\n"
-
-    # Показываем все результаты с similarity > 15%
     if ranked:
-        shown = 0
-        for i, org in enumerate(ranked[:10], 1):
-            similarity = int(org.get('similarity', 0) * 100)
-            if similarity > 15:  # Показываем только если схожесть > 15%
-                shown += 1
+        # Первая организация (наилучшее совпадение)
+        best = ranked[0]
+        output += "✨ **Наилучшее совпадение:**\n\n"
+        output += f"**{best['name'][:100]}**\n"
+        output += f"└ ИНН: `{best['inn']}`\n"
+        if best.get('ogrn'):
+            output += f"└ ОГРН: {best['ogrn']}\n"
+        if best.get('date'):
+            output += f"└ Дата регистрации: {best['date']}\n"
+        if best.get('status'):
+            status_emoji = "✅" if best['status'] == "действующее" else "❌"
+            output += f"└ Статус: {status_emoji} {best['status']}\n"
+
+        relevance = int(best.get('relevance', 0) * 100)
+        output += f"\n📊 **Релевантность: {relevance}%**\n\n"
+
+        # Остальные результаты
+        if len(ranked) > 1:
+            output += "📋 **Другие организации:**\n\n"
+            for i, org in enumerate(ranked[1:10], 2):  # со 2 по 10
+                relevance = int(org.get('relevance', 0) * 100)
                 output += f"{i}. **{org['name'][:100]}**\n"
                 output += f"   ИНН: `{org['inn']}`\n"
                 if org.get('ogrn'):
                     output += f"   ОГРН: {org['ogrn']}\n"
-                output += f"   📊 Схожесть: {similarity}%\n"
-                output += "\n"
+                output += f"   📊 Релевантность: {relevance}%\n\n"
 
-        if shown == 0:
-            output += "❌ Нет организаций с достаточной схожестью\n\n"
-        elif len(ranked) > 10:
-            output += f"... и ещё {len(ranked) - 10} организаций\n\n"
-    elif total > 0:
-        output += "📋 **Других похожих организаций не найдено**\n\n"
+            if len(ranked) > 10:
+                output += f"... и ещё {len(ranked) - 10} организаций\n\n"
+    else:
+        output += "❌ **Организации не найдены**\n\n"
 
-    # Добавляем подсказку
+    # Подсказка
     output += "---\n"
     output += "💡 **Совет:** Если нужная организация не найдена, попробуйте:\n"
-    output += "• Уточнить название (без кавычек и ООО/ИП)\n"
+    output += "• Уточнить название (без кавычек)\n"
     output += "• Указать другой регион\n"
     output += "• Использовать поиск по ИНН"
 
@@ -245,28 +231,20 @@ async def handle_user_input(message: Message):
 
         else:
 
-            # Сохраняем результаты в JSON
-
-            try:
-
-                # Создаём папку data если её нет
-
-                if not os.path.exists('data'):
-                    os.makedirs('data')
-
-                    print("📁 Создана папка data")
-
-                json_file = f"data/search_{user_id}_{int(time.time())}.json"
-
-                with open(json_file, 'w', encoding='utf-8') as f:
-
-                    json.dump(result, f, ensure_ascii=False, indent=2)
-
-                print(f"💾 JSON сохранён: {json_file}")
-
-            except Exception as e:
-
-                print(f"❌ Ошибка сохранения JSON: {e}")
+            # # Сохраняем результаты в JSON
+            #
+            # try:
+            #     # Создаём папку data если её нет
+            #     if not os.path.exists('data'):
+            #         os.makedirs('data')
+            #         print("📁 Создана папка data")
+            #
+            #     json_file = f"data/search_{user_id}_{int(time.time())}.json"
+            #     with open(json_file, 'w', encoding='utf-8') as f:
+            #         json.dump(result, f, ensure_ascii=False, indent=2)
+            #     print(f"💾 JSON сохранён: {json_file}")
+            # except Exception as e:
+            #     print(f"❌ Ошибка сохранения JSON: {e}")
 
             # Форматируем красивый ответ
 

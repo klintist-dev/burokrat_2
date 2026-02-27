@@ -1,7 +1,6 @@
 # bot/utils/text_matcher.py
 import re
 from difflib import SequenceMatcher
-import json
 from typing import List, Dict, Optional
 
 
@@ -11,7 +10,7 @@ class TextMatcher:
     @staticmethod
     def normalize(text: str) -> str:
         """
-        Нормализует текст (убирает лишнее, приводит к общему виду)
+        Нормализует текст для сравнения
         """
         if not text:
             return ""
@@ -19,146 +18,104 @@ class TextMatcher:
         # Приводим к нижнему регистру
         text = text.lower()
 
-        # Убираем кавычки разных типов
-        text = re.sub(r'["\'«»]', '', text)
+        # Заменяем ё на е
+        text = text.replace('ё', 'е')
+
+        # Убираем кавычки и спецсимволы
+        text = re.sub(r'["\'«»„“*.,!?;:()\[\]{}]', '', text)
 
         # Убираем лишние пробелы
-        text = ' '.join(text.split())
-
-        # Убираем организационно-правовые формы (ООО, ЗАО, ИП и т.д.)
-        patterns = [
-            r'\b(ооо|зао|оао|пао|ао|ип|ooo|oooо|оооо)\b',
-            r'\b(общество|с ограниченной ответственностью|закрытое акционерное|открытое акционерное|публичное акционерное)\b',
-            r'\b(муниципальное|казенное|казённое|учреждение|мку|мкку|бюджетное|автономное)\b',
-            r'\b(компания|фирма|корпорация|холдинг|группа|предприятие|организация)\b',
-            r'\b(управление|служба|отдел|департамент|администрация|комитет|департамент)\b',
-            r'\b(городского|хозяйства|обеспечения|заказчика|технического|обслуживания|эксплуатации)\b',
-            r'\b(кингисепп|ленинградская область|бугровское|мосинское|кировск)\b'
-        ]
-
-        for pattern in patterns:
-            text = re.sub(pattern, '', text, flags=re.IGNORECASE)
-
-        # Убираем множественные пробелы
         text = ' '.join(text.split())
 
         return text.strip()
 
     @staticmethod
-    def similarity(a: str, b: str) -> float:
+    def calculate_relevance(query: str, name: str) -> float:
         """
-        Возвращает коэффициент похожести двух строк (0-1)
-        """
-        if not a or not b:
-            return 0.0
-        return SequenceMatcher(None, a.lower(), b.lower()).ratio()
-
-    @staticmethod
-    def is_exact_match(query: str, name: str) -> bool:
-        """
-        Проверяет точное совпадение (с учётом нормализации)
+        Рассчитывает релевантность названия запросу
+        Возвращает число от 0 до 1
         """
         norm_query = TextMatcher.normalize(query)
         norm_name = TextMatcher.normalize(name)
-        return norm_query == norm_name
 
-    @staticmethod
-    def contains_all_words(query: str, name: str) -> bool:
-        """
-        Проверяет, содержит ли название все слова из запроса
-        """
-        query_words = set(TextMatcher.normalize(query).split())
-        name_words = set(TextMatcher.normalize(name).split())
+        # Разбиваем на слова
+        query_words = set(norm_query.split())
+        name_words = set(norm_name.split())
 
         if not query_words:
-            return True
+            return 0.0
 
-        return query_words.issubset(name_words)
-
-    @staticmethod
-    def word_coverage(query: str, name: str) -> float:
-        """
-        Возвращает долю слов из запроса, которые есть в названии
-        """
-        query_words = set(TextMatcher.normalize(query).split())
-        name_words = set(TextMatcher.normalize(name).split())
-
-        if not query_words:
-            return 1.0
-
+        # Считаем, сколько слов из запроса есть в названии
         matched_words = query_words.intersection(name_words)
-        return len(matched_words) / len(query_words)
 
-    @staticmethod
-    def get_best_match(query: str, candidates: List[Dict], threshold: float = 0.15) -> Optional[Dict]:
-        """
-        Находит лучшее совпадение среди кандидатов (сниженный порог)
-        """
-        if not candidates:
-            return None
+        # Веса для разных типов совпадений
+        score = 0.0
 
-        best_match = None
-        best_score = 0
-        best_details = {}
+        # 1. Главное: процент совпавших слов (0-1)
+        word_match_ratio = len(matched_words) / len(query_words)
+        score += word_match_ratio * 0.7  # 70% веса
 
-        for candidate in candidates:
-            name = candidate.get('name', '')
+        # 2. Дополнительно: точное совпадение фразы
+        if norm_query in norm_name:
+            score += 0.2  # +20% если фраза целиком есть в названии
 
-            # Считаем несколько метрик
-            exact = 1.0 if TextMatcher.is_exact_match(query, name) else 0
-            contains = 1.0 if TextMatcher.contains_all_words(query, name) else 0
-            coverage = TextMatcher.word_coverage(query, name)
-            similarity = TextMatcher.similarity(
-                TextMatcher.normalize(query),
-                TextMatcher.normalize(name)
-            )
+        # 3. Дополнительно: порядок слов
+        # Проверяем, идут ли слова в том же порядке
+        query_list = norm_query.split()
+        name_list = norm_name.split()
 
-            # Комбинируем метрики с весами
-            score = (exact * 1.0 +
-                     contains * 0.5 +
-                     coverage * 0.3 +
-                     similarity * 0.2)
+        # Ищем последовательность слов из запроса в названии
+        matches = 0
+        for i in range(len(name_list) - len(query_list) + 1):
+            if name_list[i:i + len(query_list)] == query_list:
+                matches += 1
 
-            # Бонус за короткое название (меньше шума)
-            if len(name) < len(query) * 2:
-                score += 0.1
+        if matches > 0:
+            score += 0.1  # +10% за сохранение порядка
 
-            details = {
-                'exact': exact > 0,
-                'contains': contains > 0,
-                'coverage': coverage,
-                'similarity': similarity,
-                'score': score
-            }
-
-            if score > best_score and similarity > threshold:
-                best_score = score
-                best_match = candidate.copy()
-                best_match['match_details'] = details
-
-        return best_match
+        return min(score, 1.0)  # Не больше 1
 
     @staticmethod
     def rank_candidates(query: str, candidates: List[Dict], threshold: float = 0.1) -> List[Dict]:
         """
-        Ранжирует всех кандидатов по степени совпадения (сниженный порог)
+        Ранжирует кандидатов по релевантности
         """
+        print(f"\n🔍 РАНЖИРОВАНИЕ для запроса: '{query}'")
+
+        norm_query = TextMatcher.normalize(query)
+        print(f"   Нормализованный запрос: '{norm_query}'")
+
         ranked = []
 
         for candidate in candidates:
             name = candidate.get('name', '')
-            similarity = TextMatcher.similarity(
-                TextMatcher.normalize(query),
-                TextMatcher.normalize(name)
-            )
 
-            # Добавляем даже с низкой схожестью
-            if similarity >= threshold:
+            # Рассчитываем релевантность
+            relevance = TextMatcher.calculate_relevance(query, name)
+
+            # Для отладки
+            norm_name = TextMatcher.normalize(name)
+            query_words = set(norm_query.split())
+            name_words = set(norm_name.split())
+            matched_words = query_words.intersection(name_words)
+
+            print(f"\n   Кандидат {candidate.get('inn')}:")
+            print(f"      релевантность: {relevance:.3f}")
+            print(f"      совпало слов: {len(matched_words)}/{len(query_words)}")
+            print(f"      слова: {sorted(matched_words)}")
+
+            if relevance >= threshold:
                 candidate_copy = candidate.copy()
-                candidate_copy['similarity'] = similarity
-                candidate_copy['exact'] = TextMatcher.is_exact_match(query, name)
+                candidate_copy['relevance'] = relevance
+                candidate_copy['similarity'] = int(relevance * 100)  # для совместимости
+                candidate_copy['matched_words'] = list(matched_words)
                 ranked.append(candidate_copy)
 
-        # Сортируем по убыванию схожести
-        ranked.sort(key=lambda x: (x.get('exact', False), x.get('similarity', 0)), reverse=True)
+        # Сортируем по релевантности
+        ranked.sort(key=lambda x: x['relevance'], reverse=True)
+
+        print(f"\n🏆 ТОП РЕЗУЛЬТАТОВ:")
+        for i, org in enumerate(ranked[:5], 1):
+            print(f"   {i}. {org['relevance']:.1%} - {org['inn']}")
+
         return ranked
