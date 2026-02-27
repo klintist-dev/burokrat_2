@@ -7,12 +7,86 @@ from bot.parsers import find_inn_by_name, find_inn_by_name_with_region, get_egru
 import os
 from bot.services.statistics import stats
 
+from bot.utils.text_matcher import TextMatcher
+import json
+import time
+from bot.parsers import find_inn_by_name_structured
+
 EXIT_COMMANDS = ["выход", "exit", "стоп", "stop", "меню", "menu", "завершить", "назад"]
 
 # Хранилище для временных данных
 user_search_type = {}
 user_search_data = {}
 
+
+def format_search_results(result: dict, original_query: str) -> str:
+    """
+    Красиво форматирует результаты поиска
+    """
+    total = result.get('total', 0)
+    best_match = result.get('best_match')
+    ranked = result.get('ranked', [])
+
+    # Заголовок
+    output = f"📊 **Найдено организаций: {total}**\n"
+    if result.get('region'):
+        region_display = "вся Россия" if result['region'] is None else f"код {result['region']}"
+        output += f"📍 Регион: {region_display}\n"
+    output += "\n"
+
+    # Если есть лучшее совпадение
+    if best_match:
+        output += "✨ **Наилучшее совпадение:**\n\n"
+        output += f"**{best_match['name']}**\n"
+        output += f"└ ИНН: `{best_match['inn']}`\n"
+        if best_match.get('ogrn'):
+            output += f"└ ОГРН: {best_match['ogrn']}\n"
+        if best_match.get('date'):
+            output += f"└ Дата регистрации: {best_match['date']}\n"
+        if best_match.get('status'):
+            status_emoji = "✅" if best_match['status'] == "действующее" else "❌"
+            output += f"└ Статус: {status_emoji} {best_match['status']}\n"
+
+        # Показываем точность совпадения
+        if best_match.get('match_details'):
+            details = best_match['match_details']
+            if details.get('exact'):
+                output += f"\n✅ **Точное совпадение!**\n\n"
+            else:
+                similarity = int(details.get('similarity', 0) * 100)
+                coverage = int(details.get('coverage', 0) * 100)
+                output += f"\n📊 Схожесть: {similarity}% (совпадение слов: {coverage}%)\n\n"
+    else:
+        output += "❌ **Точного совпадения не найдено**\n\n"
+
+    # Показываем другие результаты
+    if len(ranked) > 1:
+        output += "📋 **Другие организации с похожими названиями:**\n\n"
+
+        # Пропускаем первый, если это лучшее совпадение
+        start_idx = 1 if best_match else 0
+        for i, org in enumerate(ranked[start_idx:start_idx + 5], 1):
+            output += f"{i}. **{org['name'][:100]}**\n"
+            output += f"   ИНН: `{org['inn']}`\n"
+            if org.get('ogrn'):
+                output += f"   ОГРН: {org['ogrn']}\n"
+            if org.get('similarity'):
+                output += f"   Схожесть: {int(org['similarity'] * 100)}%\n"
+            output += "\n"
+
+        if len(ranked) > start_idx + 5:
+            output += f"... и ещё {len(ranked) - start_idx - 5} организаций\n\n"
+    elif total > 0:
+        output += "📋 **Других похожих организаций не найдено**\n\n"
+
+    # Добавляем подсказку
+    output += "---\n"
+    output += "💡 **Совет:** Если нужная организация не найдена, попробуйте:\n"
+    output += "• Уточнить название (без кавычек и ООО/ИП)\n"
+    output += "• Указать другой регион\n"
+    output += "• Использовать поиск по ИНН"
+
+    return output
 
 async def handle_inn_by_name(message: Message):
     """Обработчик кнопки '🔍 Найти ИНН по названию'"""

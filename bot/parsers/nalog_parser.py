@@ -770,3 +770,115 @@ async def get_invalid_inn_list(region: str = "") -> str:
                     return f"❌ Ошибка сервера: {response.status}"
     except Exception as e:
         return f"❌ Ошибка при парсинге: {e}"
+
+
+# Добавь эту функцию в bot/parsers/nalog_parser.py
+
+async def find_inn_by_name_structured(company_name: str, region_code: str = None) -> dict:
+    """
+    Ищет ИНН организации по названию и возвращает структурированные данные
+    Возвращает словарь с результатами и мета-информацией
+    """
+    # Импортируем здесь, чтобы избежать циклических импортов
+    from bot.utils.text_matcher import TextMatcher
+
+    base_url = "https://egrul.nalog.ru"
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json, text/javascript, */*; q=0.01',
+        'X-Requested-With': 'XMLHttpRequest'
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            # Получаем куки
+            async with session.get(f"{base_url}/index.html", headers=headers) as response:
+                if response.status != 200:
+                    return {'error': f'Ошибка загрузки страницы: {response.status}'}
+
+            # Готовим данные для поиска
+            search_data = {
+                'query': company_name,
+                'page': '1',
+                'search-type': 'ul'
+            }
+
+            if region_code:
+                search_data['region'] = region_code
+
+            # Отправляем поисковый запрос
+            async with session.post(f"{base_url}/", data=search_data, headers=headers) as response:
+                if response.status != 200:
+                    return {'error': f'Ошибка поиска: {response.status}'}
+
+                search_result = await response.json()
+                request_id = search_result.get('t') if isinstance(search_result, dict) else None
+                if not request_id:
+                    return {'error': 'Не удалось получить ID запроса'}
+
+            # Получаем результаты
+            max_attempts = 10
+            attempt = 0
+            results = None
+            wait_time = 1
+
+            while attempt < max_attempts:
+                attempt += 1
+                timestamp = int(time.time() * 1000)
+                results_url = f"{base_url}/search-result/{request_id}?r={timestamp}&_={timestamp}"
+
+                async with session.get(results_url, headers=headers) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        if 'status' in data and data['status'] == 'wait':
+                            await asyncio.sleep(wait_time)
+                            wait_time += 1
+                            continue
+                        else:
+                            results = data
+                            break
+                    else:
+                        return {'error': f'Ошибка получения результатов: {resp.status}'}
+
+            if not results:
+                return {'error': 'Время ожидания истекло'}
+
+            # Обрабатываем результаты
+            if 'rows' in results and len(results['rows']) > 0:
+                organizations = []
+                for row in results['rows']:
+                    org = {
+                        'name': row.get('n', ''),
+                        'inn': row.get('i', ''),
+                        'ogrn': row.get('o', ''),
+                        'date': row.get('r', ''),
+                        'kpp': row.get('p', ''),
+                        'status': row.get('e', 'действующее'),
+                        'region': row.get('rn', ''),
+                        'raw_data': row
+                    }
+                    organizations.append(org)
+
+                # Находим лучшее совпадение
+                matcher = TextMatcher()
+                best_match = matcher.get_best_match(company_name, organizations)
+
+                # Ранжируем все совпадения
+                ranked = matcher.rank_candidates(company_name, organizations)
+
+                return {
+                    'success': True,
+                    'total': len(organizations),
+                    'organizations': organizations,
+                    'best_match': best_match,
+                    'ranked': ranked[:10],  # Топ-10 совпадений
+                    'query': company_name,
+                    'region': region_code
+                }
+
+            return {'error': 'Организации не найдены'}
+
+    except Exception as e:
+        print(f"❌ Ошибка: {e}")
+        return {'error': f'Ошибка при парсинге: {e}'}
