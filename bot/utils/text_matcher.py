@@ -26,13 +26,21 @@ class TextMatcher:
         text = ' '.join(text.split())
 
         # Убираем организационно-правовые формы (ООО, ЗАО, ИП и т.д.)
-        text = re.sub(
-            r'\b(ооо|зао|оао|пао|ао|ип|ooo|oooо|оооо|общество|с ограниченной ответственностью|закрытое акционерное|открытое акционерное|публичное акционерное)\b',
-            '', text, flags=re.IGNORECASE)
+        patterns = [
+            r'\b(ооо|зао|оао|пао|ао|ип|ooo|oooо|оооо)\b',
+            r'\b(общество|с ограниченной ответственностью|закрытое акционерное|открытое акционерное|публичное акционерное)\b',
+            r'\b(муниципальное|казенное|казённое|учреждение|мку|мкку|бюджетное|автономное)\b',
+            r'\b(компания|фирма|корпорация|холдинг|группа|предприятие|организация)\b',
+            r'\b(управление|служба|отдел|департамент|администрация|комитет|департамент)\b',
+            r'\b(городского|хозяйства|обеспечения|заказчика|технического|обслуживания|эксплуатации)\b',
+            r'\b(кингисепп|ленинградская область|бугровское|мосинское|кировск)\b'
+        ]
 
-        # Убираем слова "компания", "фирма", "корпорация" и т.д.
-        text = re.sub(r'\b(компания|фирма|корпорация|холдинг|группа|предприятие|организация)\b', '', text,
-                      flags=re.IGNORECASE)
+        for pattern in patterns:
+            text = re.sub(pattern, '', text, flags=re.IGNORECASE)
+
+        # Убираем множественные пробелы
+        text = ' '.join(text.split())
 
         return text.strip()
 
@@ -62,7 +70,6 @@ class TextMatcher:
         query_words = set(TextMatcher.normalize(query).split())
         name_words = set(TextMatcher.normalize(name).split())
 
-        # Если запрос пустой, считаем что содержит
         if not query_words:
             return True
 
@@ -83,9 +90,9 @@ class TextMatcher:
         return len(matched_words) / len(query_words)
 
     @staticmethod
-    def get_best_match(query: str, candidates: List[Dict], threshold: float = 0.5) -> Optional[Dict]:
+    def get_best_match(query: str, candidates: List[Dict], threshold: float = 0.15) -> Optional[Dict]:
         """
-        Находит лучшее совпадение среди кандидатов
+        Находит лучшее совпадение среди кандидатов (сниженный порог)
         """
         if not candidates:
             return None
@@ -132,9 +139,9 @@ class TextMatcher:
         return best_match
 
     @staticmethod
-    def rank_candidates(query: str, candidates: List[Dict], threshold: float = 0.3) -> List[Dict]:
+    def rank_candidates(query: str, candidates: List[Dict], threshold: float = 0.1) -> List[Dict]:
         """
-        Ранжирует всех кандидатов по степени совпадения
+        Ранжирует всех кандидатов по степени совпадения (сниженный порог)
         """
         ranked = []
 
@@ -145,6 +152,7 @@ class TextMatcher:
                 TextMatcher.normalize(name)
             )
 
+            # Добавляем даже с низкой схожестью
             if similarity >= threshold:
                 candidate_copy = candidate.copy()
                 candidate_copy['similarity'] = similarity

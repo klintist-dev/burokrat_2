@@ -37,7 +37,7 @@ def format_search_results(result: dict, original_query: str) -> str:
     # Если есть лучшее совпадение
     if best_match:
         output += "✨ **Наилучшее совпадение:**\n\n"
-        output += f"**{best_match['name']}**\n"
+        output += f"**{best_match['name'][:100]}**\n"
         output += f"└ ИНН: `{best_match['inn']}`\n"
         if best_match.get('ogrn'):
             output += f"└ ОГРН: {best_match['ogrn']}\n"
@@ -57,25 +57,26 @@ def format_search_results(result: dict, original_query: str) -> str:
                 coverage = int(details.get('coverage', 0) * 100)
                 output += f"\n📊 Схожесть: {similarity}% (совпадение слов: {coverage}%)\n\n"
     else:
-        output += "❌ **Точного совпадения не найдено**\n\n"
+        output += "🔍 **Похожие организации:**\n\n"
 
-    # Показываем другие результаты
-    if len(ranked) > 1:
-        output += "📋 **Другие организации с похожими названиями:**\n\n"
+    # Показываем все результаты с similarity > 15%
+    if ranked:
+        shown = 0
+        for i, org in enumerate(ranked[:10], 1):
+            similarity = int(org.get('similarity', 0) * 100)
+            if similarity > 15:  # Показываем только если схожесть > 15%
+                shown += 1
+                output += f"{i}. **{org['name'][:100]}**\n"
+                output += f"   ИНН: `{org['inn']}`\n"
+                if org.get('ogrn'):
+                    output += f"   ОГРН: {org['ogrn']}\n"
+                output += f"   📊 Схожесть: {similarity}%\n"
+                output += "\n"
 
-        # Пропускаем первый, если это лучшее совпадение
-        start_idx = 1 if best_match else 0
-        for i, org in enumerate(ranked[start_idx:start_idx + 5], 1):
-            output += f"{i}. **{org['name'][:100]}**\n"
-            output += f"   ИНН: `{org['inn']}`\n"
-            if org.get('ogrn'):
-                output += f"   ОГРН: {org['ogrn']}\n"
-            if org.get('similarity'):
-                output += f"   Схожесть: {int(org['similarity'] * 100)}%\n"
-            output += "\n"
-
-        if len(ranked) > start_idx + 5:
-            output += f"... и ещё {len(ranked) - start_idx - 5} организаций\n\n"
+        if shown == 0:
+            output += "❌ Нет организаций с достаточной схожестью\n\n"
+        elif len(ranked) > 10:
+            output += f"... и ещё {len(ranked) - 10} организаций\n\n"
     elif total > 0:
         output += "📋 **Других похожих организаций не найдено**\n\n"
 
@@ -206,32 +207,75 @@ async def handle_user_input(message: Message):
             parse_mode="HTML"
         )
 
+
     elif search_type == "name_step2":
+
         stats.log_command(user_id, "inn_search_complete")
+
         saved_data = user_search_data.get(user_id, {})
+
         company_name = saved_data.get("company_name", "")
 
         if not company_name:
+
             await message.answer("❌ Что-то пошло не так. Начните поиск заново.", reply_markup=main_keyboard)
+
             del user_search_type[user_id]
+
             if user_id in user_search_data:
                 del user_search_data[user_id]
+
             return
 
         region_code = text if text not in ['-', 'любой', 'пропустить', 'нет'] else None
+
         region_text = region_code if region_code else "вся Россия"
 
         wait_msg = await message.answer(f"🔍 Ищу организацию '{company_name}' в регионе {region_text}...")
 
-        if region_code:
-            result = await find_inn_by_name_with_region(company_name, region_code)
-        else:
-            result = await find_inn_by_name(company_name)
+        # Используем НОВУЮ структурированную функцию
+
+        result = await find_inn_by_name_structured(company_name, region_code)
 
         await wait_msg.delete()
-        await message.answer(result, parse_mode=None, reply_markup=main_keyboard)
+
+        if 'error' in result:
+
+            await message.answer(f"❌ {result['error']}", reply_markup=main_keyboard)
+
+        else:
+
+            # Сохраняем результаты в JSON
+
+            try:
+
+                # Создаём папку data если её нет
+
+                if not os.path.exists('data'):
+                    os.makedirs('data')
+
+                    print("📁 Создана папка data")
+
+                json_file = f"data/search_{user_id}_{int(time.time())}.json"
+
+                with open(json_file, 'w', encoding='utf-8') as f:
+
+                    json.dump(result, f, ensure_ascii=False, indent=2)
+
+                print(f"💾 JSON сохранён: {json_file}")
+
+            except Exception as e:
+
+                print(f"❌ Ошибка сохранения JSON: {e}")
+
+            # Форматируем красивый ответ
+
+            output = format_search_results(result, company_name)
+
+            await message.answer(output, parse_mode="Markdown", reply_markup=main_keyboard)
 
         del user_search_type[user_id]
+
         if user_id in user_search_data:
             del user_search_data[user_id]
 
