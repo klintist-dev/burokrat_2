@@ -6,6 +6,11 @@ import asyncio
 import time
 import os
 
+# ===== НАСТРОЙКИ ПРОКСИ =====
+# Данные твоего прокси-сервера
+PROXY_URL = "http://klint-dev:813o8y8pN@94.241.142.61:3128"
+# =============================
+
 
 async def find_inn_by_name(company_name: str) -> str:
     """
@@ -24,7 +29,7 @@ async def find_inn_by_name(company_name: str) -> str:
         async with aiohttp.ClientSession() as session:
             # ШАГ 1: Получаем куки
             print("🌐 Получаем куки...")
-            async with session.get(f"{base_url}/index.html", headers=headers) as response:
+            async with session.get(f"{base_url}/index.html", headers=headers, proxy=PROXY_URL) as response:
                 if response.status != 200:
                     return f"❌ Ошибка загрузки страницы: {response.status}"
                 print("✅ Куки получены")
@@ -37,7 +42,7 @@ async def find_inn_by_name(company_name: str) -> str:
                 'search-type': 'ul'
             }
 
-            async with session.post(f"{base_url}/", data=search_data, headers=headers) as response:
+            async with session.post(f"{base_url}/", data=search_data, headers=headers, proxy=PROXY_URL) as response:
                 if response.status != 200:
                     return f"❌ Ошибка поиска: {response.status}"
 
@@ -72,7 +77,7 @@ async def find_inn_by_name(company_name: str) -> str:
                     timestamp = int(time.time() * 1000)
                     results_url = f"{base_url}/search-result/{request_id}?r={timestamp}&_={timestamp}"
 
-                    async with session.get(results_url, headers=headers) as resp:
+                    async with session.get(results_url, headers=headers, proxy=PROXY_URL) as resp:
                         if resp.status == 200:
                             data = await resp.json()
 
@@ -159,7 +164,7 @@ async def find_name_by_inn(inn: str) -> str:
     try:
         async with aiohttp.ClientSession() as session:
             print("🌐 Получаем куки...")
-            async with session.get(f"{base_url}/index.html", headers=headers) as response:
+            async with session.get(f"{base_url}/index.html", headers=headers, proxy=PROXY_URL) as response:
                 if response.status != 200:
                     return f"❌ Ошибка загрузки страницы: {response.status}"
                 print("✅ Куки получены")
@@ -171,7 +176,7 @@ async def find_name_by_inn(inn: str) -> str:
                 'search-type': 'ul'
             }
 
-            async with session.post(f"{base_url}/", data=search_data, headers=headers) as response:
+            async with session.post(f"{base_url}/", data=search_data, headers=headers, proxy=PROXY_URL) as response:
                 if response.status != 200:
                     return f"❌ Ошибка поиска: {response.status}"
 
@@ -201,7 +206,7 @@ async def find_name_by_inn(inn: str) -> str:
                     attempt += 1
                     print(f"⏳ Попытка {attempt}/{max_attempts} (ждём {wait_time} сек)...")
 
-                    async with session.get(f"{base_url}/search-result/{request_id}", headers=headers) as resp:
+                    async with session.get(f"{base_url}/search-result/{request_id}", headers=headers, proxy=PROXY_URL) as resp:
                         if resp.status == 200:
                             data = await resp.json()
 
@@ -292,7 +297,7 @@ async def find_inn_by_name_with_region(company_name: str, region_code: str = Non
     try:
         async with aiohttp.ClientSession() as session:
             print("🌐 Получаем куки...")
-            async with session.get(f"{base_url}/index.html", headers=headers) as response:
+            async with session.get(f"{base_url}/index.html", headers=headers, proxy=PROXY_URL) as response:
                 if response.status != 200:
                     return f"❌ Ошибка загрузки страницы: {response.status}"
                 print("✅ Куки получены")
@@ -308,7 +313,7 @@ async def find_inn_by_name_with_region(company_name: str, region_code: str = Non
                 print(f"📍 Ищем в регионе с кодом: {region_code}")
 
             print(f"🔍 Ищем организацию: '{company_name}'")
-            async with session.post(f"{base_url}/", data=search_data, headers=headers) as response:
+            async with session.post(f"{base_url}/", data=search_data, headers=headers, proxy=PROXY_URL) as response:
                 if response.status != 200:
                     return f"❌ Ошибка поиска: {response.status}"
 
@@ -335,7 +340,7 @@ async def find_inn_by_name_with_region(company_name: str, region_code: str = Non
                     timestamp = int(time.time() * 1000)
                     results_url = f"{base_url}/search-result/{request_id}?r={timestamp}&_={timestamp}"
 
-                    async with session.get(results_url, headers=headers) as resp:
+                    async with session.get(results_url, headers=headers, proxy=PROXY_URL) as resp:
                         if resp.status == 200:
                             data = await resp.json()
 
@@ -414,7 +419,7 @@ async def get_egrul_extract(inn: str) -> dict:
         async with aiohttp.ClientSession() as session:
             # ШАГ 1: Получаем куки
             print("🌐 Получаем куки...")
-            async with session.get(f"{base_url}/index.html", headers=headers) as response:
+            async with session.get(f"{base_url}/index.html", headers=headers, proxy=PROXY_URL) as response:
                 if response.status != 200:
                     return {'error': f'Ошибка загрузки страницы: {response.status}'}
                 print("✅ Куки получены")
@@ -436,7 +441,7 @@ async def get_egrul_extract(inn: str) -> dict:
                 'search-type': 'ul'
             }
 
-            async with session.post(search_url, data=search_data, headers=ajax_headers) as response:
+            async with session.post(search_url, data=search_data, headers=ajax_headers, proxy=PROXY_URL) as response:
                 if response.status != 200:
                     return {'error': f'Ошибка поиска: {response.status}'}
 
@@ -462,7 +467,7 @@ async def get_egrul_extract(inn: str) -> dict:
                 timestamp = int(time.time() * 1000)
                 results_url = f"{result_url}{request_id}?r={timestamp}&_={timestamp}"
 
-                async with session.get(results_url, headers=ajax_headers) as resp:
+                async with session.get(results_url, headers=ajax_headers, proxy=PROXY_URL) as resp:
                     if resp.status == 200:
                         try:
                             data = await resp.json()
@@ -513,7 +518,7 @@ async def get_egrul_extract(inn: str) -> dict:
             print("🔄 ШАГ 5: Активируем выписку через vyp-request...")
             request_activate_url = f"{request_url}{t_value}?r=&_={int(time.time()*1000)}"
 
-            async with session.get(request_activate_url, headers=ajax_headers) as resp:
+            async with session.get(request_activate_url, headers=ajax_headers, proxy=PROXY_URL) as resp:
                 if resp.status == 200:
                     print("✅ Запрос на активацию отправлен успешно")
                     try:
@@ -540,7 +545,7 @@ async def get_egrul_extract(inn: str) -> dict:
                 timestamp = int(time.time() * 1000)
                 check_status_url = f"{status_url}{t_value}?r={timestamp}&_={timestamp}"
 
-                async with session.get(check_status_url, headers=ajax_headers) as resp:
+                async with session.get(check_status_url, headers=ajax_headers, proxy=PROXY_URL) as resp:
                     if resp.status == 200:
                         try:
                             status_data = await resp.json()
@@ -599,7 +604,7 @@ async def get_egrul_extract(inn: str) -> dict:
                 download_headers['Cookie'] = '; '.join(cookie_parts)
                 print(f"🍪 Передаём куки: {len(cookie_parts)} шт.")
 
-            async with session.get(download_link, headers=download_headers, allow_redirects=True) as file_response:
+            async with session.get(download_link, headers=download_headers, allow_redirects=True, proxy=PROXY_URL) as file_response:
                 print(f"📋 Статус ответа: {file_response.status}")
                 print(f"📋 Заголовки ответа: {dict(file_response.headers)}")
 
@@ -680,7 +685,7 @@ async def find_inn_by_passport(passport_data: str) -> str:
         }
 
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, data=data, headers=headers) as response:
+            async with session.post(url, data=data, headers=headers, proxy=PROXY_URL) as response:
                 if response.status == 200:
                     html = await response.text()
                     soup = BeautifulSoup(html, 'lxml')
@@ -715,7 +720,7 @@ async def check_inn_valid(inn: str) -> str:
         }
 
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, data=data, headers=headers) as response:
+            async with session.post(url, data=data, headers=headers, proxy=PROXY_URL) as response:
                 if response.status == 200:
                     html = await response.text()
                     soup = BeautifulSoup(html, 'lxml')
@@ -746,7 +751,7 @@ async def get_invalid_inn_list(region: str = "") -> str:
 
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers) as response:
+            async with session.get(url, headers=headers, proxy=PROXY_URL) as response:
                 if response.status == 200:
                     html = await response.text()
                     soup = BeautifulSoup(html, 'lxml')
@@ -793,7 +798,7 @@ async def find_inn_by_name_structured(company_name: str, region_code: str = None
     try:
         async with aiohttp.ClientSession() as session:
             # Получаем куки
-            async with session.get(f"{base_url}/index.html", headers=headers) as response:
+            async with session.get(f"{base_url}/index.html", headers=headers, proxy=PROXY_URL) as response:
                 if response.status != 200:
                     return {'error': f'Ошибка загрузки страницы: {response.status}'}
 
@@ -808,7 +813,7 @@ async def find_inn_by_name_structured(company_name: str, region_code: str = None
                 search_data['region'] = region_code
 
             # Отправляем поисковый запрос
-            async with session.post(f"{base_url}/", data=search_data, headers=headers) as response:
+            async with session.post(f"{base_url}/", data=search_data, headers=headersб proxy=PROXY_URL) as response:
                 if response.status != 200:
                     return {'error': f'Ошибка поиска: {response.status}'}
 
@@ -828,7 +833,7 @@ async def find_inn_by_name_structured(company_name: str, region_code: str = None
                 timestamp = int(time.time() * 1000)
                 results_url = f"{base_url}/search-result/{request_id}?r={timestamp}&_={timestamp}"
 
-                async with session.get(results_url, headers=headers) as resp:
+                async with session.get(results_url, headers=headers, proxy=PROXY_URL) as resp:
                     if resp.status == 200:
                         data = await resp.json()
                         if 'status' in data and data['status'] == 'wait':
