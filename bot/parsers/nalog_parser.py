@@ -813,7 +813,7 @@ async def find_inn_by_name_structured(company_name: str, region_code: str = None
                 search_data['region'] = region_code
 
             # Отправляем поисковый запрос
-            async with session.post(f"{base_url}/", data=search_data, headers=headersб proxy=PROXY_URL) as response:
+            async with session.post(f"{base_url}/", data=search_data, headers=headers, proxy=PROXY_URL) as response:
                 if response.status != 200:
                     return {'error': f'Ошибка поиска: {response.status}'}
 
