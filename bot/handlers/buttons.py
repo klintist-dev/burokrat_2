@@ -7,6 +7,8 @@ from bot.parsers import find_inn_by_name, find_inn_by_name_with_region, get_egru
 import os
 from bot.services.statistics import stats
 
+from bot.utils.docx_generator import DocxGenerator
+
 from bot.utils.text_matcher import TextMatcher
 import json
 import time
@@ -370,9 +372,46 @@ async def handle_user_input(message: Message):
     elif search_type == "doc":
         stats.log_command(user_id, "doc")
         wait_msg = await message.answer("📄 Составляю документ, это займёт несколько секунд...")
-        result = await gigachat_inn.create_document(text)
+
+        # Получаем текст документа от GigaChat
+        result_text = await gigachat_inn.create_document(text)
         await wait_msg.delete()
-        # Добавляем инструкцию после документа
-        full_response = f"{result}\n\n---\n✅ **Документ готов!**\n\n👉 Чтобы составить ещё один документ, нажмите кнопку **«✍️ Составить документ»**\n👉 Или выберите другое действие на клавиатуре ниже."
-        await message.answer(full_response, parse_mode=None, reply_markup=main_keyboard)
+
+        # Создаём Word-документ
+        try:
+            # Извлекаем название из текста (первые 50 символов)
+            title = text[:50] + ("..." if len(text) > 50 else "")
+            # Создаём документ
+            filepath = DocxGenerator.create_document(title, result_text, user_id)
+            # Отправляем файл
+            document = FSInputFile(filepath)
+
+            await message.answer_document(
+                document,
+                caption=(
+                    "✅ **Документ готов!**\n"
+                    f"📄 {title}\n"
+                    "📎 Файл в формате Word (.docx)"
+                ),
+
+                parse_mode="Markdown",
+                reply_markup=main_keyboard
+
+            )
+
+            # Удаляем файл после отправки
+
+            try:
+                os.remove(filepath)
+                print(f"🗑️ Документ удалён: {filepath}")
+
+            except Exception as e:
+                print(f"⚠️ Не удалось удалить документ: {e}")
+
+
+        except Exception as e:
+            print(f"❌ Ошибка создания документа: {e}")
+            # Если не удалось создать Word, отправляем как текст
+            full_response = f"{result_text}\n\n---\n✅ **Документ готов!**\n\n👉 Чтобы составить ещё один документ, нажмите кнопку **«✍️ Составить документ»**"
+            await message.answer(full_response, parse_mode=None, reply_markup=main_keyboard)
         del user_search_type[user_id]
