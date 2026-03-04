@@ -34,7 +34,7 @@ class GigaChatInnAssistant:
                 self.client = GigaChat(
                     credentials=self.api_key,
                     verify_ssl_certs=False,
-                    model="GigaChat-MAX",
+                    model="GigaChat",
                     temperature=0.1
                 )
                 self.available = True
