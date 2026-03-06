@@ -7,6 +7,7 @@ button_extract = KeyboardButton(text="📄 Выписка из ЕГРЮЛ (https
 button_ask = KeyboardButton(text="💬 Задать вопрос GigaChat")
 button_doc = KeyboardButton(text="✍️ Составить документ")
 button_help = KeyboardButton(text="❓ Помощь")
+button_webapp = KeyboardButton(text="🌐 Умный поиск (Mini App)")
 
 main_keyboard = ReplyKeyboardMarkup(
     keyboard=[
@@ -14,7 +15,8 @@ main_keyboard = ReplyKeyboardMarkup(
         [button_extract],
         [button_ask],
         [button_doc],
-        [button_help]
+        [button_help],
+        [button_webapp]
     ],
     resize_keyboard=True,
     input_field_placeholder="Выберите действие..."

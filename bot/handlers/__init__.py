@@ -15,8 +15,13 @@ from .buttons import (
 from .admin import cmd_stats  # ⬅️ ДОБАВЬ ЭТУ СТРОКУ
 from .analysis import cmd_analysis
 
+rom . import start, webapp
+
 
 router = Router()
+
+router.include_router(start.router)
+router.include_router(webapp.router)
 
 # Команда /start
 router.message.register(cmd_start, Command("start"))
