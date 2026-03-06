@@ -1,11 +1,19 @@
 # bot/handlers/start.py
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
+
+from aiogram.types import Message
 from aiogram.filters import Command
+from aiogram import Router  # ← ДОБАВЬ ЭТУ СТРОКУ
 from aiogram.utils.formatting import Text, Bold, Italic
 from bot.keyboards import main_keyboard
 
+# Создаём роутер (ДОБАВЬ ЭТО!)
+router = Router()
+
+@router.message(Command("start"))  # ← ИЗМЕНИ ДЕКОРАТОР
 async def cmd_start(message: Message):
     """Приветственное сообщение с кнопками"""
+    # bot/handlers/start.py (добавь в начало функции cmd_start)
+    print(f"📋 Используется клавиатура с кнопками: {[btn.text for row in main_keyboard.keyboard for btn in row]}")
 
     # 1. СОБИРАЕМ ИМЯ И ФАМИЛИЮ
     first_name = message.from_user.first_name or ""
@@ -37,26 +45,8 @@ async def cmd_start(message: Message):
         "👇 Выберите действие на клавиатуре:"
     )
 
-    # 3. СОЗДАЁМ КНОПКИ
-    # button_inn_by_name = KeyboardButton(text="🔍 Узнать ИНН по названию")
-    # button_name_by_inn = KeyboardButton(text="🏢 Узнать название по ИНН")
-    # button_ask = KeyboardButton(text="💬 Задать вопрос GigaChat")
-    # button_doc = KeyboardButton(text="✍️ Составить документ")
-
-    # keyboard = ReplyKeyboardMarkup(
-    #     keyboard=[
-    #         [button_inn_by_name],
-    #         [button_name_by_inn],
-    #         [button_ask],
-    #         [button_doc]
-    #     ],
-    #     resize_keyboard=True,
-    #     input_field_placeholder="Выберите действие..."
-    # )
-
     # 4. ОТПРАВЛЯЕМ
     await message.answer(
         **content.as_kwargs(),
-        # reply_markup=keyboard
-        reply_markup=main_keyboard  # 👈 ПРИКРЕПЛЯЕМ КЛАВИАТУРУ
+        reply_markup=main_keyboard
     )
