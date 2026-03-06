@@ -15,7 +15,7 @@ from .buttons import (
 from .admin import cmd_stats  # ⬅️ ДОБАВЬ ЭТУ СТРОКУ
 from .analysis import cmd_analysis
 
-rom . import start, webapp
+from . import start, buttons, webapp
 
 
 router = Router()
@@ -38,6 +38,7 @@ router.message.register(handle_extract_by_inn, F.text == "📄 Выписка и
 router.message.register(handle_ask, F.text == "💬 Задать вопрос GigaChat")
 router.message.register(handle_doc, F.text == "✍️ Составить документ")
 router.message.register(handle_help, F.text == "❓ Помощь")
+router.message.register(webapp.handle_webapp, F.text == "🌐 Умный поиск (Mini App)")
 
 # Обработчик любого текста (должен быть последним!)
 router.message.register(handle_user_input)
