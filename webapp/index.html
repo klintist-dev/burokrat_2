@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>БюрократЪ - Умный поиск</title>
+    <!-- Подключаем Telegram WebApp SDK -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <!-- Наши стили -->
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="app">
+        <!-- Шапка -->
+        <header class="header">
+            <h1>🔍 Умный поиск</h1>
+            <p class="subtitle">Найдите организацию по названию или ИНН</p>
+        </header>
+
+        <main>
+            <!-- Поисковая строка -->
+            <div class="search-container">
+                <input
+                    type="text"
+                    id="searchInput"
+                    class="search-input"
+                    placeholder="Введите название или ИНН..."
+                    autocomplete="off"
+                >
+                <button id="searchBtn" class="search-btn">Найти</button>
+            </div>
+
+            <!-- Фильтры -->
+            <div class="filters">
+                <select id="regionSelect" class="filter-select">
+                    <option value="">📍 Все регионы</option>
+                    <option value="77">📍 Москва</option>
+                    <option value="78">📍 Санкт-Петербург</option>
+                    <option value="47">📍 Ленинградская обл.</option>
+                </select>
+
+                <select id="statusSelect" class="filter-select">
+                    <option value="">📊 Все статусы</option>
+                    <option value="active">✅ Действующие</option>
+                    <option value="liquidated">❌ Ликвидированные</option>
+                </select>
+            </div>
+
+            <!-- Место для результатов -->
+            <div id="results" class="results">
+                <!-- Сюда будут добавляться карточки -->
+            </div>
+
+            <!-- Индикатор загрузки -->
+            <div id="loading" class="loading hidden">
+                <div class="spinner"></div>
+                <p>Поиск организаций...</p>
+            </div>
+
+            <!-- История поиска (для начала заглушка) -->
+            <div class="history">
+                <h3>📋 Недавние запросы</h3>
+                <div id="historyList" class="history-list">
+                    <p class="history-item">ООО Ромашка</p>
+                    <p class="history-item">ИП Иванов</p>
+                    <p class="history-item">Яндекс</p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Подключаем наш JavaScript -->
+    <script src="js/app.js"></script>
+</body>
+</html>

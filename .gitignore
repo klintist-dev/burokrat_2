@@ -29,3 +29,11 @@ test_config.py
 # Data files
 data/
 *.pdf
+
+# API сервер
+instance/
+*.pyc
+__pycache__/
+
+# Flask
+flask_session/
