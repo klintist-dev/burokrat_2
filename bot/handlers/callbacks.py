@@ -22,7 +22,6 @@ router = Router()
 async def callback_find_inn(callback: CallbackQuery):
     """Поиск ИНН по названию"""
     user_id = callback.from_user.id
-    # Устанавливаем состояние name_step1 для двухшагового процесса поиска
     user_states[user_id] = "name_step1"
 
     content = Text(
@@ -32,10 +31,17 @@ async def callback_find_inn(callback: CallbackQuery):
         "Для отмены нажмите кнопку ниже"
     )
 
-    await callback.message.edit_text(
-        **content.as_kwargs(),
-        reply_markup=get_cancel_inline_keyboard()
-    )
+    # Проверяем, есть ли текст в сообщении
+    if callback.message.text:
+        await callback.message.edit_text(
+            **content.as_kwargs(),
+            reply_markup=get_cancel_inline_keyboard()
+        )
+    else:
+        await callback.message.answer(
+            **content.as_kwargs(),
+            reply_markup=get_cancel_inline_keyboard()
+        )
     await callback.answer()
 
 
@@ -51,10 +57,16 @@ async def callback_extract(callback: CallbackQuery):
         "Для отмены нажмите кнопку ниже"
     )
 
-    await callback.message.edit_text(
-        **content.as_kwargs(),
-        reply_markup=get_cancel_inline_keyboard()
-    )
+    if callback.message.text:
+        await callback.message.edit_text(
+            **content.as_kwargs(),
+            reply_markup=get_cancel_inline_keyboard()
+        )
+    else:
+        await callback.message.answer(
+            **content.as_kwargs(),
+            reply_markup=get_cancel_inline_keyboard()
+        )
     await callback.answer()
 
 
@@ -70,10 +82,16 @@ async def callback_ask(callback: CallbackQuery):
         "Для отмены нажмите кнопку ниже"
     )
 
-    await callback.message.edit_text(
-        **content.as_kwargs(),
-        reply_markup=get_cancel_inline_keyboard()
-    )
+    if callback.message.text:
+        await callback.message.edit_text(
+            **content.as_kwargs(),
+            reply_markup=get_cancel_inline_keyboard()
+        )
+    else:
+        await callback.message.answer(
+            **content.as_kwargs(),
+            reply_markup=get_cancel_inline_keyboard()
+        )
     await callback.answer()
 
 
@@ -88,10 +106,16 @@ async def callback_doc(callback: CallbackQuery):
         "Выберите тип документа:"
     )
 
-    await callback.message.edit_text(
-        **content.as_kwargs(),
-        reply_markup=get_document_types_keyboard()
-    )
+    if callback.message.text:
+        await callback.message.edit_text(
+            **content.as_kwargs(),
+            reply_markup=get_document_types_keyboard()
+        )
+    else:
+        await callback.message.answer(
+            **content.as_kwargs(),
+            reply_markup=get_document_types_keyboard()
+        )
     await callback.answer()
 
 
@@ -108,10 +132,16 @@ async def callback_help(callback: CallbackQuery):
         "Выберите действие в меню ниже"
     )
 
-    await callback.message.edit_text(
-        **content.as_kwargs(),
-        reply_markup=get_main_inline_keyboard()
-    )
+    if callback.message.text:
+        await callback.message.edit_text(
+            **content.as_kwargs(),
+            reply_markup=get_main_inline_keyboard()
+        )
+    else:
+        await callback.message.answer(
+            **content.as_kwargs(),
+            reply_markup=get_main_inline_keyboard()
+        )
     await callback.answer()
 
 
@@ -130,10 +160,16 @@ async def callback_cancel(callback: CallbackQuery):
         "Выберите действие в меню:"
     )
 
-    await callback.message.edit_text(
-        **content.as_kwargs(),
-        reply_markup=get_main_inline_keyboard()
-    )
+    if callback.message.text:
+        await callback.message.edit_text(
+            **content.as_kwargs(),
+            reply_markup=get_main_inline_keyboard()
+        )
+    else:
+        await callback.message.answer(
+            **content.as_kwargs(),
+            reply_markup=get_main_inline_keyboard()
+        )
     await callback.answer()
 
 
@@ -152,10 +188,16 @@ async def callback_back(callback: CallbackQuery):
         "Выберите действие:"
     )
 
-    await callback.message.edit_text(
-        **content.as_kwargs(),
-        reply_markup=get_main_inline_keyboard()
-    )
+    if callback.message.text:
+        await callback.message.edit_text(
+            **content.as_kwargs(),
+            reply_markup=get_main_inline_keyboard()
+        )
+    else:
+        await callback.message.answer(
+            **content.as_kwargs(),
+            reply_markup=get_main_inline_keyboard()
+        )
     await callback.answer()
 
 
@@ -186,20 +228,32 @@ async def callback_doc_type(callback: CallbackQuery):
         Italic("Например: заявление на отпуск, претензия в магазин, договор аренды, жалоба в налоговую")
     )
 
-    await callback.message.edit_text(
-        **content.as_kwargs(),
-        reply_markup=get_cancel_inline_keyboard()
-    )
+    if callback.message.text:
+        await callback.message.edit_text(
+            **content.as_kwargs(),
+            reply_markup=get_cancel_inline_keyboard()
+        )
+    else:
+        await callback.message.answer(
+            **content.as_kwargs(),
+            reply_markup=get_cancel_inline_keyboard()
+        )
     await callback.answer()
 
 
 @router.callback_query(F.data == "confirm_yes")
 async def callback_confirm_yes(callback: CallbackQuery):
     """Подтверждение действия"""
-    await callback.message.edit_text(
-        "✅ Подтверждено",
-        reply_markup=get_main_inline_keyboard()
-    )
+    if callback.message.text:
+        await callback.message.edit_text(
+            "✅ Подтверждено",
+            reply_markup=get_main_inline_keyboard()
+        )
+    else:
+        await callback.message.answer(
+            "✅ Подтверждено",
+            reply_markup=get_main_inline_keyboard()
+        )
     await callback.answer()
 
 
@@ -212,8 +266,14 @@ async def callback_confirm_no(callback: CallbackQuery):
     if user_id in user_data:
         del user_data[user_id]
 
-    await callback.message.edit_text(
-        "❌ Отменено",
-        reply_markup=get_main_inline_keyboard()
-    )
+    if callback.message.text:
+        await callback.message.edit_text(
+            "❌ Отменено",
+            reply_markup=get_main_inline_keyboard()
+        )
+    else:
+        await callback.message.answer(
+            "❌ Отменено",
+            reply_markup=get_main_inline_keyboard()
+        )
     await callback.answer()

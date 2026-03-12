@@ -18,13 +18,14 @@ from bot.parsers import find_inn_by_name_structured
 
 EXIT_COMMANDS = ["выход", "exit", "стоп", "stop", "меню", "menu", "завершить", "назад"]
 
-
-# ⚠️ Локальные хранилища УДАЛЕНЫ - используем импортированные user_states и user_data
-
-
-def format_search_results(result: dict, original_query: str) -> str:
+def format_search_results(result: dict, original_query: str, max_results: int = 4) -> str:
     """
     Красиво форматирует результаты поиска
+    
+    Args:
+        result: словарь с результатами поиска
+        original_query: исходный запрос
+        max_results: максимальное количество результатов для отображения (по умолчанию 4)
     """
     total = result.get('total', 0)
     ranked = result.get('ranked', [])
@@ -53,10 +54,13 @@ def format_search_results(result: dict, original_query: str) -> str:
         relevance = int(best.get('relevance', 0) * 100)
         output += f"\n📊 **Релевантность: {relevance}%**\n\n"
 
-        # Остальные результаты
+        # Остальные результаты (показываем max_results - 1)
         if len(ranked) > 1:
             output += "📋 **Другие организации:**\n\n"
-            for i, org in enumerate(ranked[1:10], 2):  # со 2 по 10
+            # Сколько показываем (не больше max_results - 1)
+            remaining = min(max_results - 1, len(ranked) - 1)
+            
+            for i, org in enumerate(ranked[1:remaining + 1], 2):
                 relevance = int(org.get('relevance', 0) * 100)
                 output += f"{i}. **{org['name'][:100]}**\n"
                 output += f"   ИНН: `{org['inn']}`\n"
@@ -64,8 +68,8 @@ def format_search_results(result: dict, original_query: str) -> str:
                     output += f"   ОГРН: {org['ogrn']}\n"
                 output += f"   📊 Релевантность: {relevance}%\n\n"
 
-            if len(ranked) > 10:
-                output += f"... и ещё {len(ranked) - 10} организаций\n\n"
+            if len(ranked) > max_results:
+                output += f"... и ещё {len(ranked) - max_results} организаций\n\n"
     else:
         output += "❌ **Организации не найдены**\n\n"
 
@@ -227,7 +231,8 @@ async def handle_user_input(message: Message):
                 reply_markup=get_main_inline_keyboard()
             )
         else:
-            output = format_search_results(result, company_name)
+            # Передаём max_results=4 для отображения только 4 лучших результатов
+            output = format_search_results(result, company_name, max_results=4)
             await message.answer(
                 output,
                 parse_mode="Markdown",
@@ -295,7 +300,7 @@ async def handle_user_input(message: Message):
 
     elif search_type == "ask":
         stats.log_command(user_id, "ask")
-
+        
         if text.lower() in EXIT_COMMANDS:
             if user_id in user_states:
                 del user_states[user_id]
@@ -308,7 +313,7 @@ async def handle_user_input(message: Message):
         wait_msg = await message.answer("🤔 GigaChat думает над ответом...")
         result = await gigachat_inn.ask_question(user_id, text)
         await wait_msg.delete()
-
+        
         full_response = f"{result}\n\n---\n💡 **Как продолжить:**\n• Чтобы задать ещё вопрос, просто напишите его\n• Чтобы выйти из режима, напишите **«выход»** или **«стоп»**\n• Или выберите действие на клавиатуре ниже"
         await message.answer(
             full_response,
@@ -358,6 +363,6 @@ async def handle_user_input(message: Message):
                 parse_mode=None,
                 reply_markup=get_main_inline_keyboard()
             )
-
+        
         if user_id in user_states:
             del user_states[user_id]
