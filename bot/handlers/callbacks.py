@@ -278,3 +278,63 @@ async def callback_confirm_no(callback: CallbackQuery):
             reply_markup=get_main_inline_keyboard()
         )
     await callback.answer()
+
+@router.callback_query(F.data == "menu_goszakupki")
+async def callback_goszakupki(callback: CallbackQuery):
+    """Поиск в госзакупках"""
+    user_id = callback.from_user.id
+    user_states[user_id] = "goszakupki"
+
+    content = Text(
+        Bold("🏛 Поиск в госзакупках\n\n"),
+        "Введите ИНН организации-поставщика\n",
+        "Я покажу все контракты, где она выступает исполнителем.\n\n",
+        Italic("Например: 472100471235, 7707083893"), "\n\n",
+        "Для отмены нажмите кнопку ниже"
+    )
+
+    if callback.message.text:
+        await callback.message.edit_text(
+            **content.as_kwargs(),
+            reply_markup=get_cancel_inline_keyboard()
+        )
+    else:
+        await callback.message.answer(
+            **content.as_kwargs(),
+            reply_markup=get_cancel_inline_keyboard()
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("goszakupki_page_"))
+async def callback_goszakupki_page(callback: CallbackQuery):
+    """Переключение страниц госзакупок"""
+    user_id = callback.from_user.id
+
+    # Извлекаем номер страницы из callback_data
+    # data имеет формат "goszakupki_page_2"
+    page = int(callback.data.split("_")[-1])
+
+    # Проверяем, есть ли данные пользователя
+    if user_id not in user_data or 'goszakupki_results' not in user_data[user_id]:
+        await callback.message.edit_text(
+            "❌ Данные устарели. Начните поиск заново.",
+            reply_markup=get_main_inline_keyboard()
+        )
+        await callback.answer()
+        return
+
+    # Обновляем страницу
+    user_data[user_id]['goszakupki_page'] = page
+
+    # Отправляем новую страницу
+    from bot.handlers.buttons import send_goszakupki_page
+    await send_goszakupki_page(callback.message, user_id)
+
+    await callback.answer()
+
+
+@router.callback_query(F.data == "noop")
+async def callback_noop(callback: CallbackQuery):
+    """Заглушка для неактивных кнопок"""
+    await callback.answer("Это информационная кнопка", show_alert=False)

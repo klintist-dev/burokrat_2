@@ -4,7 +4,11 @@ from bot.services.gigachat import gigachat_inn
 # from bot.keyboards import main_keyboard
 
 from bot.states import user_states, user_data
-from bot.keyboards_inline import get_main_inline_keyboard, get_cancel_inline_keyboard
+from bot.keyboards_inline import (
+    get_main_inline_keyboard,
+    get_cancel_inline_keyboard,
+    get_pagination_keyboard
+)
 from bot.parsers import find_inn_by_name, find_inn_by_name_with_region, get_egrul_extract
 import os
 from bot.services.statistics import stats
@@ -18,10 +22,11 @@ from bot.parsers import find_inn_by_name_structured
 
 EXIT_COMMANDS = ["выход", "exit", "стоп", "stop", "меню", "menu", "завершить", "назад"]
 
+
 def format_search_results(result: dict, original_query: str, max_results: int = 4) -> str:
     """
     Красиво форматирует результаты поиска
-    
+
     Args:
         result: словарь с результатами поиска
         original_query: исходный запрос
@@ -59,7 +64,7 @@ def format_search_results(result: dict, original_query: str, max_results: int = 
             output += "📋 **Другие организации:**\n\n"
             # Сколько показываем (не больше max_results - 1)
             remaining = min(max_results - 1, len(ranked) - 1)
-            
+
             for i, org in enumerate(ranked[1:remaining + 1], 2):
                 relevance = int(org.get('relevance', 0) * 100)
                 output += f"{i}. **{org['name'][:100]}**\n"
@@ -154,6 +159,71 @@ async def handle_help(message: Message):
         '• <a href="https://egrul.nalog.ru">Поиск по ЕГРЮЛ</a>\n\n'
         "Просто выберите нужную кнопку и следуйте инструкциям.",
         parse_mode="HTML"
+    )
+
+
+async def send_goszakupki_page(message: Message, user_id: int):
+    """Отправляет страницу с контрактами госзакупок"""
+    data = user_data.get(user_id, {})
+    result = data.get('goszakupki_results', {})
+    page = data.get('goszakupki_page', 1)
+    total_pages = data.get('goszakupki_total_pages', 1)
+    inn = data.get('goszakupki_inn', '')
+
+    # ОТЛАДКА
+    print(f"📊 ОТЛАДКА: страница {page}, всего страниц {total_pages}")
+    contracts = result.get('contracts', [])
+    print(f"📊 Всего контрактов в списке: {len(contracts)}")
+    print(f"📊 Всего контрактов по данным парсера: {result.get('total', 0)}")
+
+    # Проверяем, что данные существуют
+    if not result:
+        await message.answer(
+            "❌ Данные не найдены. Начните поиск заново.",
+            reply_markup=get_main_inline_keyboard()
+        )
+        return
+
+    contracts = result.get('contracts', [])
+    total = result.get('total', 0)
+
+    # ВАЖНО: contracts - это полный список, а не только то, что отображается на странице
+    # Вычисляем, какие контракты показывать на текущей странице
+    items_per_page = 5
+    start_idx = (page - 1) * items_per_page
+    end_idx = min(start_idx + items_per_page, len(contracts))
+
+    # Получаем контракты для текущей страницы
+    current_contracts = contracts[start_idx:end_idx]
+
+    response = f"🏛 <b>Контракты по ИНН {inn}</b>\n"
+    response += f"📊 Всего найдено: {total}\n"
+    response += f"📄 Страница {page} из {total_pages}\n\n"
+
+    if current_contracts:
+        for i, contract in enumerate(current_contracts, start_idx + 1):
+            # Обрезаем длинные названия
+            customer_short = contract['customer'][:100] + "..." if len(contract['customer']) > 100 else contract[
+                'customer']
+            object_short = contract['object'][:100] + "..." if len(contract['object']) > 100 else contract['object']
+
+            response += (
+                f"<b>{i}. {contract['number']}</b>\n"
+                f"📌 Статус: {contract['status']}\n"
+                f"💰 Цена: {contract['price']}\n"
+                f"🏢 Заказчик: {customer_short}\n"
+                f"📅 Опубликован: {contract['publish_date']}\n"
+                f"📝 {object_short}\n"
+                f"🔗 <a href='{contract['url']}'>Ссылка</a>\n\n"
+            )
+    else:
+        response += "❌ Контракты не найдены"
+
+    # Создаём клавиатуру для пагинации
+    await message.answer(
+        response,
+        parse_mode="HTML",
+        reply_markup=get_pagination_keyboard(page, total_pages, "goszakupki")
     )
 
 
@@ -295,12 +365,85 @@ async def handle_user_input(message: Message):
             del user_states[user_id]
 
     ###########################################################################
+    # ПОИСК В ГОСЗАКУПКАХ (1 ШАГ)
+    ###########################################################################
+
+    elif search_type == "goszakupki":
+
+        stats.log_command(user_id, "goszakupki")
+
+        if not text.isdigit() or len(text) not in (10, 12):
+            await message.answer(
+
+                "❌ ИНН должен содержать 10 или 12 цифр.\nПопробуйте ещё раз:",
+
+                reply_markup=get_cancel_inline_keyboard()
+
+            )
+
+            return
+
+        wait_msg = await message.answer(
+
+            "🏛 <b>Ищу контракты в госзакупках...</b>\n"
+
+            "<i>Это может занять несколько секунд</i>",
+
+            parse_mode="HTML"
+
+        )
+
+        from bot.parsers.gos_zakupki_parser import GosZakupkiParser
+
+        parser = GosZakupkiParser()
+
+        result = parser.search_by_supplier_inn(text)
+
+        await wait_msg.delete()
+
+        if 'error' in result:
+
+            await message.answer(
+
+                f"❌ Ошибка при поиске: {result['error']}",
+
+                reply_markup=get_main_inline_keyboard()
+
+            )
+
+        else:
+
+            contracts = result.get('contracts', [])
+
+            total_contracts = len(contracts)  # используем длину списка, а не result['total']
+
+            # Важно: если total_contracts = 13, то (13 + 4) // 5 = 17 // 5 = 3 страницы
+
+            total_pages = (total_contracts + 4) // 5 if total_contracts > 0 else 1
+
+            print(f"✅ Найдено контрактов: {total_contracts}, страниц: {total_pages}")
+
+            user_data[user_id] = {
+
+                'goszakupki_results': result,
+
+                'goszakupki_inn': text,
+
+                'goszakupki_page': 1,
+
+                'goszakupki_total_pages': total_pages
+
+            }
+
+            await send_goszakupki_page(message, user_id)
+
+    ###########################################################################
     # ОБЩИЕ ВОПРОСЫ GIGACHAT (1 ШАГ)
     ###########################################################################
 
     elif search_type == "ask":
         stats.log_command(user_id, "ask")
-        
+
         if text.lower() in EXIT_COMMANDS:
             if user_id in user_states:
                 del user_states[user_id]
@@ -313,7 +456,7 @@ async def handle_user_input(message: Message):
         wait_msg = await message.answer("🤔 GigaChat думает над ответом...")
         result = await gigachat_inn.ask_question(user_id, text)
         await wait_msg.delete()
-        
+
         full_response = f"{result}\n\n---\n💡 **Как продолжить:**\n• Чтобы задать ещё вопрос, просто напишите его\n• Чтобы выйти из режима, напишите **«выход»** или **«стоп»**\n• Или выберите действие на клавиатуре ниже"
         await message.answer(
             full_response,
@@ -363,6 +506,7 @@ async def handle_user_input(message: Message):
                 parse_mode=None,
                 reply_markup=get_main_inline_keyboard()
             )
-        
+
         if user_id in user_states:
             del user_states[user_id]
+
