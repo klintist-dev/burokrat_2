@@ -24,10 +24,11 @@ async def callback_find_inn(callback: CallbackQuery):
     user_id = callback.from_user.id
     user_states[user_id] = "name_step1"
 
+    # Короткий и понятный текст
     content = Text(
-        Bold("🔍 Поиск ИНН по названию\n\n"),
-        "Введите название организации (например: ",
-        Italic("ООО Ромашка"), ")\n\n",
+        Bold("🔍 Поиск ИНН\n\n"),
+        "Введите название организации\n",
+        Italic("Пример: ООО Ромашка, ИП Иванов"), "\n\n",
         "Для отмены нажмите кнопку ниже"
     )
 
