@@ -1,62 +1,42 @@
-# bot/handlers/start.py
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
+from aiogram import Router
+from aiogram.types import Message
 from aiogram.filters import Command
 from aiogram.utils.formatting import Text, Bold, Italic
-from bot.keyboards import main_keyboard
 
+from bot.keyboards_inline import get_main_inline_keyboard
+
+router = Router()
+
+
+@router.message(Command("start"))
 async def cmd_start(message: Message):
-    """Приветственное сообщение с кнопками"""
+    """Приветственное сообщение с инлайн-кнопками"""
 
-    # 1. СОБИРАЕМ ИМЯ И ФАМИЛИЮ
+    # Собираем имя пользователя
     first_name = message.from_user.first_name or ""
     last_name = message.from_user.last_name or ""
 
-    # Если есть и имя, и фамилия
     if first_name and last_name:
         full_name = f"{first_name} {last_name}"
-    # Если только имя
     elif first_name:
         full_name = first_name
-    # Если ничего нет
     else:
         full_name = "пользователь"
 
-    # 2. СОЗДАЁМ ТЕКСТ
+    # Создаём форматированный текст
     content = Text(
         Bold("👋 Добро пожаловать, "),
         Bold(full_name), "!\n\n",
-
         "Я ", Italic("БюрократЪ 2.0"), " — ваш информационный помощник.\n\n",
-
         Bold("📋 Что я умею:\n"),
-        "• 🔍 Находить ИНН по названию организации (через парсинг)\n",
-        "• 🏢 Находить название организации по ИНН (через парсинг)\n",
-        "• 💬 Задать вопрос GigaChat\n",
-        "• ✍️ Составить документ\n\n",
-
-        "👇 Выберите действие на клавиатуре:"
+        "• 🔍 Находить ИНН по названию организации\n",
+        "• 📄 Получать выписки из ЕГРЮЛ\n",
+        "• 💬 Отвечать на вопросы (GigaChat)\n",
+        "• ✍️ Составлять документы\n\n",
+        "👇 Выберите действие на клавиатуре ниже:"
     )
 
-    # 3. СОЗДАЁМ КНОПКИ
-    # button_inn_by_name = KeyboardButton(text="🔍 Узнать ИНН по названию")
-    # button_name_by_inn = KeyboardButton(text="🏢 Узнать название по ИНН")
-    # button_ask = KeyboardButton(text="💬 Задать вопрос GigaChat")
-    # button_doc = KeyboardButton(text="✍️ Составить документ")
-
-    # keyboard = ReplyKeyboardMarkup(
-    #     keyboard=[
-    #         [button_inn_by_name],
-    #         [button_name_by_inn],
-    #         [button_ask],
-    #         [button_doc]
-    #     ],
-    #     resize_keyboard=True,
-    #     input_field_placeholder="Выберите действие..."
-    # )
-
-    # 4. ОТПРАВЛЯЕМ
     await message.answer(
         **content.as_kwargs(),
-        # reply_markup=keyboard
-        reply_markup=main_keyboard  # 👈 ПРИКРЕПЛЯЕМ КЛАВИАТУРУ
+        reply_markup=get_main_inline_keyboard()
     )
