@@ -13,7 +13,6 @@ from urllib.parse import urljoin, urlencode
 
 logger = logging.getLogger(__name__)
 
-
 class GosZakupkiDebugParser:
     """
     Парсер для поиска контрактов по ИНН поставщика с подробным логированием
@@ -27,7 +26,7 @@ class GosZakupkiDebugParser:
         self.debug = debug
         self.request_log = []
 
-        # Точные заголовки Firefox из HAR-файла
+        # ПОЛНЫЙ набор заголовков Firefox из твоего HAR
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:147.0) Gecko/20100101 Firefox/147.0',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -39,12 +38,12 @@ class GosZakupkiDebugParser:
             'Sec-Fetch-Mode': 'navigate',
             'Sec-Fetch-Site': 'none',
             'Sec-Fetch-User': '?1',
+            'Cache-Control': 'max-age=0',
+            'TE': 'trailers',
         })
 
-        # Куки как в браузере
+        # Куки в правильном формате
         self.cookies = {
-            'userRegionName': 'Ленинградская',
-            'yandexRegionName': 'Ленинградская область',
             'doNotShowKladrPopUp': 'true',
             'detectedRegionId': '47000000000',
             '_ym_uid': '1768300417367406414',
@@ -53,7 +52,17 @@ class GosZakupkiDebugParser:
         }
         self.session.cookies.update(self.cookies)
 
-    def _log_request(self, method: str, url: str, params: Dict = None, response=None, error: str = None):
+        # Убираем русские куки из заголовков
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:147.0) Gecko/20100101 Firefox/147.0',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+        })
+
+    def _log_request(self, method: str, url: str, params: Dict = None, response = None, error: str = None):
         """Логирует детали запроса"""
         log_entry = {
             'timestamp': datetime.now().isoformat(),
@@ -71,7 +80,7 @@ class GosZakupkiDebugParser:
 
         # Выводим в консоль
         logger.info(f"🌐 {method} {url}")
-        logger.info(f"📊 Параметры: {json.dumps(params, ensure_ascii=False, indent=2)}")
+        logger.info(f"📊 Параметры: {json.dumps(params, ensure_ascii=False, indent=2) if params else 'null'}")
         logger.info(f"🔑 Куки: {dict(self.session.cookies)}")
         if response:
             logger.info(f"✅ Статус: {response.status_code}")
@@ -83,16 +92,24 @@ class GosZakupkiDebugParser:
         logger.info("-" * 50)
 
     def _make_request(self, method: str, url: str, params: Dict = None, delay: int = 3):
-        """Делает запрос с задержкой и логированием"""
         time.sleep(delay)
 
-        try:
-            response = self.session.request(method, url, params=params, timeout=30)
-            self._log_request(method, url, params, response)
-            return response
-        except Exception as e:
-            self._log_request(method, url, params, error=str(e))
-            raise
+        # Добавляем поддержку сжатия
+        response = self.session.request(
+            method, url,
+            params=params,
+            timeout=120,
+            allow_redirects=True,
+            headers={'Accept-Encoding': 'gzip, deflate, br'}  # явно указываем
+        )
+
+        # Если ответ сжатый, разжимаем
+        if response.headers.get('content-encoding') == 'br':
+            import brotli
+            response._content = brotli.decompress(response.content)
+
+        response.encoding = 'utf-8'
+        return response
 
     def search_by_supplier_inn(self, inn: str) -> Dict:
         """
@@ -132,6 +149,11 @@ class GosZakupkiDebugParser:
 
             response = self._make_request('GET', self.SEARCH_URL, params=params, delay=3)
 
+            # Сохраняем HTML даже при ошибке
+            with open(f'goszakupki_error_{inn}_{response.status_code}.html', 'w', encoding='utf-8') as f:
+                f.write(response.text)
+            logger.info(f"💾 HTML ошибки сохранён в goszakupki_error_{inn}_{response.status_code}.html")
+
             # Сохраняем полный лог в файл
             with open(f'goszakupki_debug_{inn}.json', 'w', encoding='utf-8') as f:
                 json.dump(self.request_log, f, ensure_ascii=False, indent=2)
@@ -158,7 +180,7 @@ class GosZakupkiDebugParser:
                 return {
                     'success': False,
                     'status_code': response.status_code,
-                    'error': 'Не удалось получить данные'
+                    'error': f'HTTP {response.status_code}'
                 }
 
         except Exception as e:
