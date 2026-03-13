@@ -34,3 +34,8 @@ data/
 .netrc
 .netrc
 ~/.netrc
+
+# Debug logs
+goszakupki_*.log
+goszakupki_*.json
+goszakupki_*.html
