@@ -29,3 +29,8 @@ test_config.py
 # Data files
 data/
 *.pdf
+
+# Личные токены и credentials
+.netrc
+.netrc
+~/.netrc
