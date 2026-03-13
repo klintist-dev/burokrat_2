@@ -1,6 +1,6 @@
 """
 Парсер для сайта госзакупок zakupki.gov.ru
-Аналог парсера nalog_parser.py
+Исправленная версия для работы на сервере
 """
 
 import requests
@@ -10,6 +10,8 @@ import time
 import random
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import urljoin
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 logger = logging.getLogger(__name__)
 
@@ -24,11 +26,98 @@ class GosZakupkiParser:
 
     def __init__(self):
         self.session = requests.Session()
+
+        # Настройка повторных попыток при ошибках
+        retry_strategy = Retry(
+            total=2,
+            status_forcelist=[429, 500, 502, 503, 504],
+            backoff_factor=1,
+            allowed_methods=["GET"]
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        self.session.mount("http://", adapter)
+        self.session.mount("https://", adapter)
+
+        # Заголовки как в браузере
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:147.0) Gecko/20100101 Firefox/147.0',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Accept-Encoding': 'gzip, deflate, br',  # Явно просим brotli
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
         })
+
+        # Пробуем импортировать brotli (необязательно, но желательно)
+        try:
+            import brotli
+            self.brotli_available = True
+        except ImportError:
+            self.brotli_available = False
+            logger.warning("⚠️ brotli не установлен. Установите: pip install brotli")
+
+        # Прогреваем сессию
+        self._warmup_session()
+
+    def _warmup_session(self):
+        """Прогрев сессии: получаем cookies как настоящий браузер"""
+        try:
+            logger.info("🌡 Прогрев сессии...")
+
+            # 1. Заходим на главную (она редиректит на /epz/main/public/home.html)
+            self._make_request('GET', self.BASE_URL)
+            time.sleep(1)
+
+            # 2. Заходим на страницу поиска
+            self._make_request('GET', f"{self.BASE_URL}/epz/contract/search/search.html")
+            time.sleep(1)
+
+            logger.info("✅ Сессия прогрета")
+
+        except Exception as e:
+            logger.warning(f"⚠️ Ошибка прогрева сессии: {e}")
+
+    def _make_request(self, method: str, url: str, **kwargs) -> requests.Response:
+        """
+        Выполняет запрос с поддержкой Brotli и повторными попытками
+        """
+        # Таймаут по умолчанию
+        if 'timeout' not in kwargs:
+            kwargs['timeout'] = 30
+
+        response = self.session.request(method, url, **kwargs)
+
+        # Разжимаем Brotli если нужно
+        if response.headers.get('content-encoding') == 'br' and self.brotli_available:
+            try:
+                import brotli
+                response._content = brotli.decompress(response.content)
+                logger.debug("📦 Распакован Brotli")
+            except Exception as e:
+                logger.error(f"❌ Ошибка распаковки Brotli: {e}")
+
+        response.encoding = 'utf-8'
+        return response
+
+    def _check_response(self, response: requests.Response) -> bool:
+        """
+        Проверяет, не вернулась ли капча или блокировка
+        """
+        if response.status_code != 200:
+            logger.error(f"❌ HTTP {response.status_code}")
+            return False
+
+        # Проверяем наличие капчи (по ключевым словам)
+        text_lower = response.text.lower()
+        if 'captcha' in text_lower or 'капча' in text_lower:
+            logger.error("🚫 Обнаружена капча! IP может быть заблокирован")
+            return False
+
+        if 'blocked' in text_lower or 'блокировк' in text_lower:
+            logger.error("🚫 Доступ заблокирован")
+            return False
+
+        return True
 
     def search_by_supplier_inn(self, inn: str) -> Dict:
         """
@@ -58,35 +147,53 @@ class GosZakupkiParser:
                     'sortBy': 'UPDATE_DATE',
                     'pageNumber': str(page),
                     'sortDirection': 'false',
-                    'recordsPerPage': '_10',  # по 10 записей на странице
+                    'recordsPerPage': '_10',
                     'showLotsInfoHidden': 'false'
                 }
 
                 # Добавляем задержку между запросами
-                time.sleep(random.uniform(1, 2))
+                time.sleep(random.uniform(1.5, 2.5))
 
                 # Выполняем запрос
-                response = self.session.get(self.SEARCH_URL, params=params, timeout=30)
-                response.raise_for_status()
+                response = self._make_request('GET', self.SEARCH_URL, params=params)
+
+                # Проверяем ответ
+                if not self._check_response(response):
+                    return {
+                        'inn': inn,
+                        'total': 0,
+                        'contracts': [],
+                        'success': False,
+                        'error': 'Response blocked or captcha detected'
+                    }
 
                 # Парсим страницу
                 contracts, total_on_page = self._parse_search_results(response.text)
+
+                # Если на странице нет карточек, останавливаемся
+                if not contracts:
+                    logger.warning(f"⚠️ На странице {page} нет карточек, останавливаемся")
+                    break
+
                 all_contracts.extend(contracts)
 
                 # На первой странице узнаём общее количество страниц
                 if page == 1:
-                    # Парсим общее количество результатов
                     soup = BeautifulSoup(response.text, 'lxml')
                     total_results = self._parse_total_count(soup)
-                    total_pages = (total_results + 9) // 10  # округление вверх
-                    logger.info(f"📊 Всего результатов: {total_results}, страниц: {total_pages}")
+                    if total_results > 0:
+                        total_pages = (total_results + 9) // 10
+                        logger.info(f"📊 Всего результатов: {total_results}, страниц: {total_pages}")
+                    else:
+                        logger.warning("⚠️ Не удалось определить общее количество результатов")
+                        break
 
                 logger.info(f"📄 Страница {page}: найдено {len(contracts)} контрактов")
                 page += 1
 
             result = {
                 'inn': inn,
-                'total': len(all_contracts),  # теперь реальное количество
+                'total': len(all_contracts),
                 'contracts': all_contracts,
                 'success': True
             }
@@ -101,15 +208,10 @@ class GosZakupkiParser:
     def _parse_search_results(self, html: str) -> Tuple[List[Dict], int]:
         """
         Парсит страницу результатов поиска
-
-        Returns:
-            Кортеж: (список контрактов, общее количество)
         """
         soup = BeautifulSoup(html, 'lxml')
         contracts = []
 
-        # Ищем все карточки контрактов
-        # В логе видно, что они имеют класс 'search-registry-entry-block'
         cards = soup.select('.search-registry-entry-block')
 
         for card in cards:
@@ -121,9 +223,7 @@ class GosZakupkiParser:
                 logger.error(f"Ошибка при парсинге карточки: {e}")
                 continue
 
-        # Парсим общее количество
         total = self._parse_total_count(soup)
-
         return contracts, total
 
     def _parse_contract_card(self, card) -> Optional[Dict]:
@@ -181,10 +281,8 @@ class GosZakupkiParser:
         Парсит общее количество найденных контрактов
         """
         try:
-            # Ищем элемент с общим количеством
             total_elem = soup.select_one('.search-results__total')
             if total_elem:
-                # Текст обычно: "13 записей"
                 text = total_elem.text
                 import re
                 numbers = re.findall(r'\d+', text)
@@ -205,22 +303,17 @@ class GosZakupkiParser:
     def _parse_pagination(self, soup) -> Tuple[int, int]:
         """
         Парсит информацию о пагинации
-        Возвращает: (текущая_страница, всего_страниц)
         """
         try:
-            # Ищем элемент с номером страницы
             current_page = 1
             total_pages = 1
 
-            # Ищем кнопки пагинации
             paginator = soup.select('.paginator')
             if paginator:
-                # Ищем активную страницу
                 active_page = paginator[0].select('.page__link_active')
                 if active_page:
                     current_page = int(active_page[0].text.strip())
 
-                # Ищем последнюю страницу
                 pages = paginator[0].select('.page a')
                 if pages:
                     last_page = pages[-1].text.strip()
