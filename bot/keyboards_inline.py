@@ -1,277 +1,226 @@
-"""
-Инлайн-клавиатуры для бота
-"""
-
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.utils.keyboard import InlineKeyboardBuilder
+from typing import List, Dict
 
 
-def get_main_inline_keyboard() -> InlineKeyboardMarkup:
-    """
-    Главная инлайн-клавиатура с основными функциями (адаптировано для мобильных)
-    Каждая кнопка на отдельной строке для лучшей читаемости
-    """
-    builder = InlineKeyboardBuilder()
-
-    # Первая строка: поиск ИНН
-    builder.row(
-        InlineKeyboardButton(
-            text="🔍 Поиск ИНН",
-            callback_data="menu_find_inn"
-        ),
-        width=1
-    )
-
-    # Вторая строка: выписка ФНС
-    builder.row(
-        InlineKeyboardButton(
-            text="📄 Выписка ФНС",
-            callback_data="menu_extract"
-        ),
-        width=1
-    )
-
-    # Третья строка: госзакупки
-    builder.row(
-        InlineKeyboardButton(
-            text="🏛 Госзакупки",
-            callback_data="menu_goszakupki"
-        ),
-        width=1
-    )
-
-    # Четвёртая строка: GigaChat и документы (вместе)
-    builder.row(
-        InlineKeyboardButton(
-            text="💬 GigaChat",
-            callback_data="menu_ask"
-        ),
-        InlineKeyboardButton(
-            text="✍️ Документ",
-            callback_data="menu_doc"
-        ),
-        width=2
-    )
-
-    # Пятая строка: помощь
-    builder.row(
-        InlineKeyboardButton(
-            text="❓ Помощь",
-            callback_data="menu_help"
-        ),
-        width=1
-    )
-
-    return builder.as_markup()
+def get_main_inline_keyboard():
+    """Главная клавиатура с кнопками"""
+    buttons = [
+        [InlineKeyboardButton(text="🔍 Найти ИНН по названию", callback_data="menu_find_inn")],
+        [InlineKeyboardButton(text="📄 Выписка из ЕГРЮЛ (официально)", callback_data="menu_extract")],
+        [InlineKeyboardButton(text="💬 Задать вопрос GigaChat", callback_data="menu_ask")],
+        [InlineKeyboardButton(text="✍️ Составить документ", callback_data="menu_doc")],
+        [InlineKeyboardButton(text="❓ Помощь", callback_data="menu_help")],
+        [InlineKeyboardButton(text="🏛 Поиск в госзакупках", callback_data="menu_goszakupki")]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def get_cancel_inline_keyboard() -> InlineKeyboardMarkup:
+def get_cancel_inline_keyboard():
     """Клавиатура с кнопкой отмены"""
-    builder = InlineKeyboardBuilder()
-    builder.button(
-        text="❌ Отмена",
-        callback_data="menu_cancel"
-    )
-    return builder.as_markup()
+    buttons = [
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="menu_cancel")]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def get_back_inline_keyboard() -> InlineKeyboardMarkup:
-    """
-    Клавиатура с кнопкой назад
-    """
-    builder = InlineKeyboardBuilder()
-    builder.button(
-        text="◀️ Назад в меню",
-        callback_data="menu_back"
-    )
-    return builder.as_markup()
+def get_back_inline_keyboard():
+    """Клавиатура с кнопкой назад"""
+    buttons = [
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="menu_back")]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def get_confirm_inline_keyboard() -> InlineKeyboardMarkup:
-    """
-    Клавиатура с подтверждением
-    """
-    builder = InlineKeyboardBuilder()
-    builder.row(
-        InlineKeyboardButton(text="✅ Да", callback_data="confirm_yes"),
-        InlineKeyboardButton(text="❌ Нет", callback_data="confirm_no"),
-        width=2
-    )
-    return builder.as_markup()
+def get_document_types_keyboard():
+    """Клавиатура выбора типа документа"""
+    buttons = [
+        [InlineKeyboardButton(text="📝 Заявление", callback_data="doc_application")],
+        [InlineKeyboardButton(text="📄 Договор", callback_data="doc_contract")],
+        [InlineKeyboardButton(text="📋 Доверенность", callback_data="doc_power")],
+        [InlineKeyboardButton(text="✉️ Письмо", callback_data="doc_letter")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="menu_cancel")]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def get_document_types_keyboard() -> InlineKeyboardMarkup:
-    """
-    Клавиатура с типами документов (адаптировано для мобильных)
-    """
-    builder = InlineKeyboardBuilder()
-
-    # Два ряда по две кнопки
-    builder.row(
-        InlineKeyboardButton(text="📝 Заявление", callback_data="doc_application"),
-        InlineKeyboardButton(text="📋 Договор", callback_data="doc_contract"),
-        width=2
-    )
-    builder.row(
-        InlineKeyboardButton(text="📄 Доверенность", callback_data="doc_power"),
-        InlineKeyboardButton(text="✉️ Письмо", callback_data="doc_letter"),
-        width=2
-    )
-
-    # Кнопка назад на всю ширину
-    builder.row(
-        InlineKeyboardButton(text="◀️ Назад", callback_data="menu_back"),
-        width=1
-    )
-
-    return builder.as_markup()
-
-
-def get_pagination_keyboard(current_page: int, total_pages: int, data_type: str) -> InlineKeyboardMarkup:
-    """
-    Создаёт клавиатуру для пагинации
-
-    Args:
-        current_page: текущая страница
-        total_pages: всего страниц
-        data_type: тип данных (goszakupki, extract_history и т.д.)
-    """
-    builder = InlineKeyboardBuilder()
-
-    # Кнопки навигации
+def get_pagination_keyboard(current_page: int, total_pages: int, prefix: str = "page"):
+    """Клавиатура для пагинации"""
     buttons = []
 
-    # Кнопка "Назад" (если не первая страница)
+    # Кнопка "Назад"
     if current_page > 1:
         buttons.append(
             InlineKeyboardButton(
                 text="◀️ Назад",
-                callback_data=f"{data_type}_page_{current_page - 1}"
+                callback_data=f"{prefix}_page_{current_page - 1}"
             )
         )
 
-    # Информационная кнопка с номером страницы
+    # Текущая страница
     buttons.append(
-        InlineKeyboardButton(
-            text=f"📄 {current_page}/{total_pages}",
-            callback_data="noop"
-        )
-    )
-
-    # Кнопка "Вперёд" (если не последняя страница)
-    if current_page < total_pages:
-        buttons.append(
-            InlineKeyboardButton(
-                text="Вперёд ▶️",
-                callback_data=f"{data_type}_page_{current_page + 1}"
-            )
-        )
-
-    # Добавляем кнопки в ряд (3 кнопки или меньше)
-    builder.row(*buttons, width=len(buttons))
-
-    # Кнопка "В главное меню"
-    builder.row(
-        InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu_back"),
-        width=1
-    )
-
-    return builder.as_markup()
-
-
-def get_noop_keyboard() -> InlineKeyboardMarkup:
-    """Заглушка для неактивных кнопок"""
-    builder = InlineKeyboardBuilder()
-    builder.button(
-        text="◀️ Вернуться в меню",
-        callback_data="menu_back"
-    )
-    return builder.as_markup()
-
-
-def get_simple_pagination_keyboard(current_page: int, total_pages: int, data_type: str) -> InlineKeyboardMarkup:
-    """
-    Упрощённая клавиатура для пагинации (только вперёд/назад)
-
-    Args:
-        current_page: текущая страница
-        total_pages: всего страниц
-        data_type: тип данных
-    """
-    builder = InlineKeyboardBuilder()
-
-    # Если есть предыдущая страница
-    if current_page > 1:
-        builder.button(
-            text="◀️ Предыдущая",
-            callback_data=f"{data_type}_page_{current_page - 1}"
-        )
-
-    # Если есть следующая страница
-    if current_page < total_pages:
-        builder.button(
-            text="Следующая ▶️",
-            callback_data=f"{data_type}_page_{current_page + 1}"
-        )
-
-    # Выравниваем кнопки в ряд
-    if len(builder.buttons) > 0:
-        builder.adjust(len(builder.buttons))
-
-    # Кнопка "В главное меню"
-    builder.row(
-        InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu_back"),
-        width=1
-    )
-
-    return builder.as_markup()
-
-
-def get_results_navigation_keyboard(current_page: int, total_pages: int, data_type: str) -> InlineKeyboardMarkup:
-    """
-    Клавиатура для навигации по результатам поиска
-
-    Args:
-        current_page: текущая страница
-        total_pages: всего страниц
-        data_type: тип данных
-    """
-    builder = InlineKeyboardBuilder()
-
-    # Верхний ряд: навигация по страницам
-    nav_buttons = []
-
-    if current_page > 1:
-        nav_buttons.append(
-            InlineKeyboardButton(
-                text="◀️",
-                callback_data=f"{data_type}_page_{current_page - 1}"
-            )
-        )
-
-    nav_buttons.append(
         InlineKeyboardButton(
             text=f"{current_page}/{total_pages}",
             callback_data="noop"
         )
     )
 
+    # Кнопка "Вперед"
     if current_page < total_pages:
-        nav_buttons.append(
+        buttons.append(
             InlineKeyboardButton(
-                text="▶️",
-                callback_data=f"{data_type}_page_{current_page + 1}"
+                text="Вперед ▶️",
+                callback_data=f"{prefix}_page_{current_page + 1}"
             )
         )
 
-    if nav_buttons:
-        builder.row(*nav_buttons, width=len(nav_buttons))
+    # Собираем кнопки в строку
+    keyboard = [buttons]
 
-    # Нижний ряд: действия
-    builder.row(
-        InlineKeyboardButton(text="🏠 Меню", callback_data="menu_back"),
-        InlineKeyboardButton(text="🔄 Новый поиск", callback_data="menu_goszakupki"),
-        width=2
-    )
+    # Кнопка "В главное меню"
+    keyboard.append([
+        InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu_back")
+    ])
 
-    return builder.as_markup()
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
+def get_contract_details_keyboard(contract_url: str, index: int):
+    """Клавиатура для просмотра деталей контракта"""
+    buttons = [
+        [InlineKeyboardButton(
+            text=f"📄 Подробнее о контракте",
+            callback_data=f"contract_details_{index}"
+        )]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_documents_keyboard(documents: List[Dict], contract_index: int, current_tab: str = "all"):
+    """Клавиатура для выбора документа для скачивания (с группировкой по вкладкам)"""
+    buttons = []
+
+    if not documents:
+        buttons.append([
+            InlineKeyboardButton(
+                text="📭 Нет документов",
+                callback_data="noop"
+            )
+        ])
+    else:
+        # Группируем по вкладкам
+        docs_by_tab = {}
+        for doc in documents:
+            tab = doc.get('source_tab', 'Другие')
+            if tab not in docs_by_tab:
+                docs_by_tab[tab] = []
+            docs_by_tab[tab].append(doc)
+
+        # Сортируем вкладки в нужном порядке
+        tab_order = ['Вложения', 'Исполнение', 'Платежи', 'Другие']
+
+        # Кнопки для переключения между вкладками
+        tab_buttons = []
+        for tab in tab_order:
+            if tab in docs_by_tab and docs_by_tab[tab]:
+                # Если это текущая вкладка, показываем её как текст
+                if tab == current_tab:
+                    tab_buttons.append(
+                        InlineKeyboardButton(
+                            text=f"📌 {tab} ({len(docs_by_tab[tab])})",
+                            callback_data="noop"
+                        )
+                    )
+                else:
+                    tab_buttons.append(
+                        InlineKeyboardButton(
+                            text=f"📁 {tab} ({len(docs_by_tab[tab])})",
+                            callback_data=f"tab_{contract_index}_{tab}"
+                        )
+                    )
+
+        # Добавляем кнопки вкладок (по 2 в ряд)
+        if tab_buttons:
+            for i in range(0, len(tab_buttons), 2):
+                buttons.append(tab_buttons[i:i + 2])
+
+        # Если выбрана конкретная вкладка, показываем документы из неё
+        if current_tab != "all" and current_tab in docs_by_tab:
+            docs_to_show = docs_by_tab[current_tab]
+        else:
+            # Иначе показываем все документы (первые 10)
+            docs_to_show = documents[:10]
+
+        # Документы
+        for i, doc in enumerate(docs_to_show[:10]):
+            doc_type = doc.get('type', 'unknown')
+            doc_icon = {
+                'PDF': '📕',
+                'RAR': '📦',
+                'XML': '📄',
+                'HTML': '🌐',
+                'unknown': '📎'
+            }.get(doc_type, '📎')
+
+            title = doc.get('title', 'Документ')
+            if len(title) > 40:
+                title = title[:37] + "..."
+
+            # Находим глобальный индекс документа
+            global_idx = documents.index(doc) + 1
+
+            buttons.append([
+                InlineKeyboardButton(
+                    text=f"{doc_icon} {title}",
+                    callback_data=f"download_doc_{contract_index}_{global_idx}"
+                )
+            ])
+
+    # Кнопки навигации
+    buttons.append([
+        InlineKeyboardButton(
+            text="◀️ Назад к деталям",
+            callback_data="back_to_contract_details"
+        )
+    ])
+
+    buttons.append([
+        InlineKeyboardButton(
+            text="🏠 Главное меню",
+            callback_data="menu_back"
+        )
+    ])
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_back_to_contracts_keyboard():
+    """Простая клавиатура для возврата к списку"""
+    buttons = [
+        [InlineKeyboardButton(
+            text="◀️ Назад к списку контрактов",
+            callback_data="back_to_contracts"
+        )],
+        [InlineKeyboardButton(
+            text="🏠 Главное меню",
+            callback_data="menu_back"
+        )]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_document_link_keyboard(doc_url: str):
+    """Клавиатура с кнопкой копирования ссылки"""
+    buttons = [
+        [InlineKeyboardButton(
+            text="🔗 Открыть ссылку",
+            url=doc_url
+        )],
+        [InlineKeyboardButton(
+            text="📋 Копировать ссылку",
+            callback_data=f"copy_link_{doc_url[:50]}"  # ограничение длины
+        )],
+        [InlineKeyboardButton(
+            text="◀️ Назад к документам",
+            callback_data="back_to_contract_details"
+        )]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)

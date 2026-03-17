@@ -1,14 +1,17 @@
 from aiogram.types import Message, FSInputFile
 from aiogram.utils.formatting import Text as FText, Bold, Italic
 from bot.services.gigachat import gigachat_inn
-# from bot.keyboards import main_keyboard
+import asyncio
 
 from bot.states import user_states, user_data
 from bot.keyboards_inline import (
     get_main_inline_keyboard,
     get_cancel_inline_keyboard,
-    get_pagination_keyboard
+    get_pagination_keyboard,
+    get_contract_details_keyboard,  # добавить
+    get_documents_keyboard          # добавить (понадобится позже)
 )
+
 from bot.parsers import find_inn_by_name, find_inn_by_name_with_region, get_egrul_extract
 import os
 from bot.services.statistics import stats
@@ -21,6 +24,12 @@ import time
 from bot.parsers import find_inn_by_name_structured
 
 EXIT_COMMANDS = ["выход", "exit", "стоп", "stop", "меню", "menu", "завершить", "назад"]
+
+from bot.constants import ITEMS_PER_PAGE, EXIT_COMMANDS
+from typing import Dict, List, Optional, Tuple
+
+import logging
+logger = logging.getLogger(__name__)
 
 
 def format_search_results(result: dict, original_query: str, max_results: int = 4) -> str:
@@ -163,69 +172,58 @@ async def handle_help(message: Message):
 
 
 async def send_goszakupki_page(message: Message, user_id: int):
-    """Отправляет страницу с контрактами госзакупок"""
+    """Отправляет страницу с контрактами госзакупок (каждый контракт отдельно)"""
     data = user_data.get(user_id, {})
     result = data.get('goszakupki_results', {})
     page = data.get('goszakupki_page', 1)
     total_pages = data.get('goszakupki_total_pages', 1)
     inn = data.get('goszakupki_inn', '')
 
-    # ОТЛАДКА
-    print(f"📊 ОТЛАДКА: страница {page}, всего страниц {total_pages}")
-    contracts = result.get('contracts', [])
-    print(f"📊 Всего контрактов в списке: {len(contracts)}")
-    print(f"📊 Всего контрактов по данным парсера: {result.get('total', 0)}")
-
-    # Проверяем, что данные существуют
-    if not result:
-        await message.answer(
-            "❌ Данные не найдены. Начните поиск заново.",
-            reply_markup=get_main_inline_keyboard()
-        )
-        return
-
     contracts = result.get('contracts', [])
     total = result.get('total', 0)
 
-    # ВАЖНО: contracts - это полный список, а не только то, что отображается на странице
-    # Вычисляем, какие контракты показывать на текущей странице
-    items_per_page = 5
+    items_per_page = ITEMS_PER_PAGE
     start_idx = (page - 1) * items_per_page
     end_idx = min(start_idx + items_per_page, len(contracts))
-
-    # Получаем контракты для текущей страницы
     current_contracts = contracts[start_idx:end_idx]
 
-    response = f"🏛 <b>Контракты по ИНН {inn}</b>\n"
-    response += f"📊 Всего найдено: {total}\n"
-    response += f"📄 Страница {page} из {total_pages}\n\n"
+    # Заголовок страницы
+    header = f"🏛 <b>Контракты по ИНН {inn}</b>\n"
+    header += f"📊 Всего найдено: {total}\n"
+    header += f"📄 Страница {page} из {total_pages}\n\n"
+    await message.answer(header, parse_mode="HTML")
 
-    if current_contracts:
-        for i, contract in enumerate(current_contracts, start_idx + 1):
-            # Обрезаем длинные названия
-            customer_short = contract['customer'][:100] + "..." if len(contract['customer']) > 100 else contract[
-                'customer']
-            object_short = contract['object'][:100] + "..." if len(contract['object']) > 100 else contract['object']
+    # Отправляем каждый контракт отдельным сообщением с кнопкой
+    for i, contract in enumerate(current_contracts, start_idx + 1):
+        customer_short = contract['customer'][:80] + "..." if len(contract['customer']) > 80 else contract['customer']
+        object_short = contract['object'][:80] + "..." if len(contract['object']) > 80 else contract['object']
 
-            response += (
-                f"<b>{i}. {contract['number']}</b>\n"
-                f"📌 Статус: {contract['status']}\n"
-                f"💰 Цена: {contract['price']}\n"
-                f"🏢 Заказчик: {customer_short}\n"
-                f"📅 Опубликован: {contract['publish_date']}\n"
-                f"📝 {object_short}\n"
-                f"🔗 <a href='{contract['url']}'>Ссылка</a>\n\n"
-            )
-    else:
-        response += "❌ Контракты не найдены"
+        contract_text = (
+            f"<b>{i}. {contract['number']}</b>\n"
+            f"📌 Статус: {contract['status']}\n"
+            f"💰 Цена: {contract['price']}\n"
+            f"🏢 Заказчик: {customer_short}\n"
+            f"📅 Опубликован: {contract['publish_date']}\n"
+            f"📝 {object_short}"
+        )
 
-    # Создаём клавиатуру для пагинации
+        # Добавляем кнопку "Подробнее"
+        from bot.keyboards_inline import get_contract_details_keyboard
+        await message.answer(
+            contract_text,
+            parse_mode="HTML",
+            reply_markup=get_contract_details_keyboard(contract['url'], i)
+        )
+
+        # Небольшая задержка между сообщениями, чтобы не спамить
+        await asyncio.sleep(0.3)
+
+    # Клавиатура пагинации отдельным сообщением
+    from bot.keyboards_inline import get_pagination_keyboard
     await message.answer(
-        response,
-        parse_mode="HTML",
+        "📌 Навигация:",
         reply_markup=get_pagination_keyboard(page, total_pages, "goszakupki")
     )
-
 
 async def handle_user_input(message: Message):
     """
@@ -383,11 +381,17 @@ async def handle_user_input(message: Message):
 
             return
 
+        # Показываем "печатает..."
+
+        await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
+
         wait_msg = await message.answer(
 
             "🏛 <b>Ищу контракты в госзакупках...</b>\n"
 
-            "<i>Это может занять несколько секунд</i>",
+            "<i>Это может занять 20-30 секунд</i>\n\n"
+
+            "🔍 Ищем контракты...",
 
             parse_mode="HTML"
 
@@ -397,7 +401,15 @@ async def handle_user_input(message: Message):
 
         parser = GosZakupkiParser()
 
+        # Засекаем время
+
+        import time
+
+        start_time = time.time()
+
         result = parser.search_by_supplier_inn(text)
+
+        elapsed = time.time() - start_time
 
         await wait_msg.delete()
 
@@ -415,13 +427,11 @@ async def handle_user_input(message: Message):
 
             contracts = result.get('contracts', [])
 
-            total_contracts = len(contracts)  # используем длину списка, а не result['total']
+            total_contracts = len(contracts)
 
-            # Важно: если total_contracts = 13, то (13 + 4) // 5 = 17 // 5 = 3 страницы
+            total_pages = (total_contracts + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
 
-            total_pages = (total_contracts + 4) // 5 if total_contracts > 0 else 1
-
-            print(f"✅ Найдено контрактов: {total_contracts}, страниц: {total_pages}")
+            logger.info(f"✅ Найдено контрактов: {total_contracts}, страниц: {total_pages} (за {elapsed:.1f} сек)")
 
             user_data[user_id] = {
 
@@ -509,4 +519,50 @@ async def handle_user_input(message: Message):
 
         if user_id in user_states:
             del user_states[user_id]
+
+
+def format_contract_details(details: Dict, index: int) -> str:
+    """Форматирует детальную информацию о контракте"""
+    text = f"📋 <b>Детали контракта #{index}</b>\n\n"
+
+    text += f"<b>Номер:</b> {details.get('number', 'N/A')}\n"
+    text += f"<b>Статус:</b> {details.get('status', 'N/A')}\n"
+    text += f"<b>Цена:</b> {details.get('price', 'N/A')}\n\n"
+
+    if details.get('customer'):
+        text += f"<b>Заказчик:</b>\n"
+        text += f"{details['customer'].get('name', 'N/A')}\n"
+        if details['customer'].get('code'):
+            text += f"Код: {details['customer']['code']}\n"
+        text += "\n"
+
+    if details.get('supplier'):
+        text += f"<b>Поставщик:</b>\n"
+        text += f"{details['supplier'].get('name', 'N/A')}\n\n"
+
+    if details.get('dates'):
+        text += f"<b>Даты:</b>\n"
+        if details['dates'].get('conclusion'):
+            text += f"• Заключение: {details['dates']['conclusion']}\n"
+        if details['dates'].get('execution'):
+            text += f"• Исполнение до: {details['dates']['execution']}\n"
+        if details['dates'].get('published'):
+            text += f"• Опубликован: {details['dates']['published']}\n"
+        if details['dates'].get('updated'):
+            text += f"• Обновлён: {details['dates']['updated']}\n"
+
+    # Информация о документах по вкладкам
+    docs_by_tab = details.get('documents_by_tab', {})
+    total_docs = len(details.get('documents', []))
+
+    text += f"\n<b>📎 Документы:</b> {total_docs}\n"
+
+    if docs_by_tab.get('attachments'):
+        text += f"   • Вложения: {len(docs_by_tab['attachments'])} шт.\n"
+    if docs_by_tab.get('execution'):
+        text += f"   • Исполнение: {len(docs_by_tab['execution'])} шт.\n"
+    if docs_by_tab.get('payments'):
+        text += f"   • Платежи: {len(docs_by_tab['payments'])} шт.\n"
+
+    return text
 

@@ -8,17 +8,19 @@ from bs4 import BeautifulSoup
 import logging
 import time
 import random
+import re
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import urljoin
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+import os
 
 logger = logging.getLogger(__name__)
 
 
 class GosZakupkiParser:
     """
-    Парсер для поиска контрактов по ИНН поставщика
+    Парсер для поиска контрактов по ИНН поставщика и получения деталей контракта
     """
 
     BASE_URL = "https://zakupki.gov.ru"
@@ -43,12 +45,12 @@ class GosZakupkiParser:
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:147.0) Gecko/20100101 Firefox/147.0',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
-            'Accept-Encoding': 'gzip, deflate, br',  # Явно просим brotli
+            'Accept-Encoding': 'gzip, deflate, br',
             'Connection': 'keep-alive',
             'Upgrade-Insecure-Requests': '1',
         })
 
-        # Пробуем импортировать brotli (необязательно, но желательно)
+        # Пробуем импортировать brotli
         try:
             import brotli
             self.brotli_available = True
@@ -64,7 +66,7 @@ class GosZakupkiParser:
         try:
             logger.info("🌡 Прогрев сессии...")
 
-            # 1. Заходим на главную (она редиректит на /epz/main/public/home.html)
+            # 1. Заходим на главную
             self._make_request('GET', self.BASE_URL)
             time.sleep(1)
 
@@ -81,7 +83,6 @@ class GosZakupkiParser:
         """
         Выполняет запрос с поддержкой Brotli и повторными попытками
         """
-        # Таймаут по умолчанию
         if 'timeout' not in kwargs:
             kwargs['timeout'] = 30
 
@@ -107,7 +108,6 @@ class GosZakupkiParser:
             logger.error(f"❌ HTTP {response.status_code}")
             return False
 
-        # Проверяем наличие капчи (по ключевым словам)
         text_lower = response.text.lower()
         if 'captcha' in text_lower or 'капча' in text_lower:
             logger.error("🚫 Обнаружена капча! IP может быть заблокирован")
@@ -128,10 +128,9 @@ class GosZakupkiParser:
 
             all_contracts = []
             page = 1
-            total_pages = 1  # пока неизвестно
+            total_pages = 1
 
             while page <= total_pages:
-                # Формируем параметры запроса для текущей страницы
                 params = {
                     'morphology': 'on',
                     'fz44': 'on',
@@ -151,13 +150,10 @@ class GosZakupkiParser:
                     'showLotsInfoHidden': 'false'
                 }
 
-                # Добавляем задержку между запросами
                 time.sleep(random.uniform(1.5, 2.5))
 
-                # Выполняем запрос
                 response = self._make_request('GET', self.SEARCH_URL, params=params)
 
-                # Проверяем ответ
                 if not self._check_response(response):
                     return {
                         'inn': inn,
@@ -167,17 +163,14 @@ class GosZakupkiParser:
                         'error': 'Response blocked or captcha detected'
                     }
 
-                # Парсим страницу
                 contracts, total_on_page = self._parse_search_results(response.text)
 
-                # Если на странице нет карточек, останавливаемся
                 if not contracts:
                     logger.warning(f"⚠️ На странице {page} нет карточек, останавливаемся")
                     break
 
                 all_contracts.extend(contracts)
 
-                # На первой странице узнаём общее количество страниц
                 if page == 1:
                     soup = BeautifulSoup(response.text, 'lxml')
                     total_results = self._parse_total_count(soup)
@@ -231,7 +224,6 @@ class GosZakupkiParser:
         Парсит одну карточку контракта
         """
         try:
-            # Номер контракта и ссылка
             number_elem = card.select_one('.registry-entry__header-mid__number a')
             if not number_elem:
                 return None
@@ -240,24 +232,19 @@ class GosZakupkiParser:
             relative_url = number_elem.get('href', '')
             url = urljoin(self.BASE_URL, relative_url) if relative_url else ''
 
-            # Статус
             status_elem = card.select_one('.registry-entry__header-mid__title')
             status = status_elem.text.strip() if status_elem else ''
 
-            # Заказчик
             customer_elem = card.select_one('.registry-entry__body-href a')
             customer = customer_elem.text.strip() if customer_elem else ''
 
-            # Цена
             price_elem = card.select_one('.price-block__value')
             price = price_elem.text.strip() if price_elem else ''
 
-            # Даты
             dates = card.select('.data-block .row .data-block__value')
             publish_date = dates[0].text.strip() if len(dates) > 0 else ''
             update_date = dates[1].text.strip() if len(dates) > 1 else ''
 
-            # Объект закупки
             object_elem = card.select_one('.lots-wrap-content__body--item .lots-wrap-content__body__val span')
             object_name = object_elem.text.strip() if object_elem else ''
 
@@ -284,7 +271,6 @@ class GosZakupkiParser:
             total_elem = soup.select_one('.search-results__total')
             if total_elem:
                 text = total_elem.text
-                import re
                 numbers = re.findall(r'\d+', text)
                 if numbers:
                     return int(numbers[0])
@@ -295,31 +281,298 @@ class GosZakupkiParser:
     def get_contract_details(self, contract_url: str) -> Dict:
         """
         Получает детальную информацию о конкретном контракте
-        (для будущего расширения)
-        """
-        # TODO: Реализовать позже, когда понадобится
-        return {'url': contract_url}
-
-    def _parse_pagination(self, soup) -> Tuple[int, int]:
-        """
-        Парсит информацию о пагинации
+        со всех вкладок, где есть документы
         """
         try:
-            current_page = 1
-            total_pages = 1
+            logger.info(f"🔍 Получаем детали контракта: {contract_url}")
 
-            paginator = soup.select('.paginator')
-            if paginator:
-                active_page = paginator[0].select('.page__link_active')
-                if active_page:
-                    current_page = int(active_page[0].text.strip())
+            # Получаем основную страницу
+            response = self._make_request('GET', contract_url)
 
-                pages = paginator[0].select('.page a')
-                if pages:
-                    last_page = pages[-1].text.strip()
-                    if last_page.isdigit():
-                        total_pages = int(last_page)
+            if not self._check_response(response):
+                return {'error': 'Не удалось загрузить страницу контракта', 'success': False}
 
-            return current_page, total_pages
-        except:
-            return 1, 1
+            soup = BeautifulSoup(response.text, 'lxml')
+
+            # Список вкладок с документами
+            doc_tabs = [
+                ('document-info.html', 'Вложения'),
+                ('execution-info.html', 'Исполнение'),
+                ('payment-info-and-target-of-order.html', 'Платежи')
+            ]
+
+            all_documents = []
+
+            # Парсим каждую вкладку
+            for tab_file, tab_name in doc_tabs:
+                tab_url = contract_url.replace('common-info.html', tab_file)
+                logger.info(f"📄 Загружаем вкладку '{tab_name}': {tab_url}")
+
+                try:
+                    tab_response = self._make_request('GET', tab_url)
+
+                    # Если страница не найдена (404), просто пропускаем
+                    if tab_response.status_code == 404:
+                        logger.info(f"   Вкладка '{tab_name}' не существует (404)")
+                        continue
+
+                    if self._check_response(tab_response):
+                        tab_soup = BeautifulSoup(tab_response.text, 'lxml')
+                        tab_docs = self._extract_documents(tab_soup)
+
+                        # Добавляем информацию об источнике
+                        for doc in tab_docs:
+                            doc['source_tab'] = tab_name
+
+                        all_documents.extend(tab_docs)
+                        logger.info(f"   Найдено документов в '{tab_name}': {len(tab_docs)}")
+                except Exception as e:
+                    logger.error(f"Ошибка при загрузке вкладки {tab_name}: {e}")
+                    continue
+
+            # Собираем все данные
+            details = {
+                'url': contract_url,
+                'number': self._extract_contract_number(soup),
+                'status': self._extract_contract_status(soup),
+                'price': self._extract_contract_price(soup),
+                'customer': self._extract_customer_info(soup),
+                'supplier': self._extract_supplier_info(soup),
+                'dates': self._extract_dates(soup),
+                'documents': all_documents,
+                'documents_by_tab': {
+                    'attachments': [d for d in all_documents if d.get('source_tab') == 'Вложения'],
+                    'execution': [d for d in all_documents if d.get('source_tab') == 'Исполнение'],
+                    'payments': [d for d in all_documents if d.get('source_tab') == 'Платежи']
+                },
+                'success': True
+            }
+
+            logger.info(f"✅ Номер: {details['number']}")
+            logger.info(f"✅ Статус: {details['status']}")
+            logger.info(f"✅ Цена: {details['price']}")
+            logger.info(f"✅ Всего документов: {len(all_documents)}")
+            logger.info(f"   - Вложения: {len(details['documents_by_tab']['attachments'])}")
+            logger.info(f"   - Исполнение: {len(details['documents_by_tab']['execution'])}")
+            logger.info(f"   - Платежи: {len(details['documents_by_tab']['payments'])}")
+
+            return details
+
+        except Exception as e:
+            logger.error(f"❌ Ошибка при получении деталей контракта: {e}")
+            return {'error': str(e), 'success': False}
+
+    def _extract_contract_number(self, soup) -> str:
+        """Извлекает номер контракта"""
+        try:
+            elem = soup.select_one('.cardMainInfo__purchaseLink a')
+            if elem:
+                return elem.text.strip()
+
+            elem = soup.select_one('a[href*="reestrNumber"]')
+            if elem and 'Подписаться' not in elem.text:
+                return elem.text.strip()
+
+            return ''
+        except Exception as e:
+            logger.error(f"Ошибка извлечения номера: {e}")
+            return ''
+
+    def _extract_contract_status(self, soup) -> str:
+        """Извлекает статус контракта"""
+        try:
+            elem = soup.select_one('.cardMainInfo__state')
+            return elem.text.strip() if elem else ''
+        except Exception as e:
+            logger.error(f"Ошибка извлечения статуса: {e}")
+            return ''
+
+    def _extract_contract_price(self, soup) -> str:
+        """Извлекает цену"""
+        try:
+            elem = soup.select_one('.cardMainInfo__content.cost')
+            return elem.text.strip() if elem else ''
+        except Exception as e:
+            logger.error(f"Ошибка извлечения цены: {e}")
+            return ''
+
+    def _extract_customer_info(self, soup) -> Dict:
+        """Информация о заказчике"""
+        try:
+            customer = {}
+            elem = soup.select_one('.cardMainInfo__section .cardMainInfo__content a')
+            if elem:
+                customer['name'] = elem.text.strip()
+                href = elem.get('href', '')
+                if href:
+                    customer['url'] = urljoin(self.BASE_URL, href)
+
+                if 'organizationCode=' in href:
+                    match = re.search(r'organizationCode=(\d+)', href)
+                    if match:
+                        customer['code'] = match.group(1)
+            return customer
+        except Exception as e:
+            logger.error(f"Ошибка извлечения заказчика: {e}")
+            return {}
+
+    def _extract_supplier_info(self, soup) -> Dict:
+        """Информация о поставщике (если есть)"""
+        return {}
+
+    def _extract_dates(self, soup) -> Dict:
+        """Извлекает даты контракта"""
+        try:
+            dates = {}
+
+            date_elements = soup.select('.date .cardMainInfo__section .cardMainInfo__content')
+
+            if len(date_elements) >= 2:
+                dates['conclusion'] = date_elements[0].text.strip()
+                dates['execution'] = date_elements[1].text.strip()
+
+            all_sections = soup.select('.cardMainInfo__section .cardMainInfo__content')
+            if len(all_sections) >= 4:
+                dates['published'] = all_sections[-2].text.strip()
+                dates['updated'] = all_sections[-1].text.strip()
+
+            return dates
+        except Exception as e:
+            logger.error(f"Ошибка извлечения дат: {e}")
+            return {}
+
+    def _extract_documents(self, soup) -> List[Dict]:
+        """Извлекает ссылки на документы со страницы вложений"""
+        documents = []
+
+        try:
+            file_links = soup.select('a[href*="/44fz/filestore/"]')
+
+            for link in file_links:
+                try:
+                    doc = {}
+
+                    href = link.get('href', '')
+                    if href.startswith('/'):
+                        doc['url'] = urljoin(self.BASE_URL, href)
+                    else:
+                        doc['url'] = href
+
+                    doc['title'] = link.get('title', link.text.strip())
+
+                    url_lower = doc['url'].lower()
+                    title_lower = doc['title'].lower()
+
+                    if '.pdf' in url_lower or '.pdf' in title_lower:
+                        doc['type'] = 'PDF'
+                    elif '.rar' in url_lower or '.rar' in title_lower:
+                        doc['type'] = 'RAR'
+                    elif '.xml' in url_lower or '.xml' in title_lower:
+                        doc['type'] = 'XML'
+                    elif '.doc' in url_lower or '.doc' in title_lower:
+                        doc['type'] = 'DOC'
+                    else:
+                        doc['type'] = 'unknown'
+
+                    size_match = re.search(r'\(([\d.,]+\s*[КМ]б)\)', link.get('title', ''))
+                    if size_match:
+                        doc['size'] = size_match.group(1)
+
+                    documents.append(doc)
+
+                except Exception as e:
+                    logger.error(f"Ошибка парсинга документа: {e}")
+                    continue
+
+        except Exception as e:
+            logger.error(f"Ошибка в _extract_documents: {e}")
+
+        return documents
+
+    def download_contract_document(self, doc_url: str, filename: str = None) -> Optional[str]:
+        """
+        Скачивает документ контракта
+        """
+        try:
+            response = self._make_request('GET', doc_url)
+
+            if response.status_code != 200:
+                logger.error(f"Ошибка скачивания: {response.status_code}")
+                return None
+
+            os.makedirs('data/goszakupki', exist_ok=True)
+
+            if not filename:
+                import hashlib
+                url_hash = hashlib.md5(doc_url.encode()).hexdigest()[:8]
+
+                ext = '.bin'
+                if '.pdf' in doc_url.lower():
+                    ext = '.pdf'
+                elif '.rar' in doc_url.lower():
+                    ext = '.rar'
+                elif '.xml' in doc_url.lower():
+                    ext = '.xml'
+                elif '.html' in doc_url.lower():
+                    ext = '.html'
+
+                filename = f"contract_{url_hash}{ext}"
+
+            filepath = f"data/goszakupki/{filename}"
+
+            with open(filepath, 'wb') as f:
+                f.write(response.content)
+
+            logger.info(f"✅ Документ сохранён: {filepath}")
+            return filepath
+
+        except Exception as e:
+            logger.error(f"Ошибка скачивания документа: {e}")
+            return None
+
+
+# Тестовая функция (вне класса)
+def test_documents_tab():
+    """Тестируем получение документов с отдельной вкладки"""
+
+    print("\n" + "=" * 60)
+    print("📎 ТЕСТ: Получение документов с вкладки 'Вложения'")
+    print("=" * 60 + "\n")
+
+    parser = GosZakupkiParser()
+    reestr = "3470704054126000003"
+
+    doc_url = f"https://zakupki.gov.ru/epz/contract/contractCard/document-info.html?reestrNumber={reestr}"
+
+    print(f"📄 Загружаем: {doc_url}\n")
+
+    response = parser._make_request('GET', doc_url)
+    soup = BeautifulSoup(response.text, 'lxml')
+
+    file_links = soup.select('a[href*="/44fz/filestore/"]')
+
+    print(f"🔍 Найдено ссылок на файлы: {len(file_links)}")
+
+    for i, link in enumerate(file_links[:5], 1):
+        print(f"\n{i}. {link.get('title', link.text.strip())}")
+        print(f"   URL: {link.get('href', '')[:100]}")
+
+        href = link.get('href', '').lower()
+        if '.pdf' in href:
+            print(f"   Тип: PDF")
+        elif '.rar' in href:
+            print(f"   Тип: RAR")
+        elif '.xml' in href:
+            print(f"   Тип: XML")
+
+    def get_document_link(self, doc_url: str) -> str:
+        """
+        Преобразует относительную ссылку в абсолютную для скачивания
+        """
+        if doc_url.startswith('/'):
+            return urljoin(self.BASE_URL, doc_url)
+        return doc_url
+
+
+if __name__ == "__main__":
+    test_documents_tab()
