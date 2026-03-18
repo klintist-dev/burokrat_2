@@ -398,7 +398,7 @@ async def find_inn_by_name_with_region(company_name: str, region_code: str = Non
 async def get_egrul_extract(inn: str) -> dict:
     """
     Получает выписку из ЕГРЮЛ по ИНН
-    Возвращает словарь с путём к файлу или ошибкой
+    Возвращает словарь с путём к файлу, ссылкой и другой информацией
     """
     print(f"🔍 get_egrul_extract: начинаем поиск для ИНН {inn}")
 
@@ -514,9 +514,9 @@ async def get_egrul_extract(inn: str) -> dict:
             if not t_value:
                 return {'error': 'Не найден код для скачивания'}
 
-            # ШАГ 5: Активируем выписку через vyp-request (как в браузере!)
+            # ШАГ 5: Активируем выписку через vyp-request
             print("🔄 ШАГ 5: Активируем выписку через vyp-request...")
-            request_activate_url = f"{request_url}{t_value}?r=&_={int(time.time()*1000)}"
+            request_activate_url = f"{request_url}{t_value}?r=&_={int(time.time() * 1000)}"
 
             async with session.get(request_activate_url, headers=ajax_headers, proxy=PROXY_URL) as resp:
                 if resp.status == 200:
@@ -528,7 +528,6 @@ async def get_egrul_extract(inn: str) -> dict:
                         print("⚠️ Не удалось распарсить ответ активации (возможно, пустой)")
                 else:
                     print(f"⚠️ Ошибка при активации: {resp.status}")
-                    # Продолжаем, даже если ошибка - возможно, выписка уже активирована
 
             # ШАГ 6: Проверяем статус через vyp-status
             print("⏳ ШАГ 6: Проверяем статус выписки...")
@@ -604,16 +603,18 @@ async def get_egrul_extract(inn: str) -> dict:
                 download_headers['Cookie'] = '; '.join(cookie_parts)
                 print(f"🍪 Передаём куки: {len(cookie_parts)} шт.")
 
-            async with session.get(download_link, headers=download_headers, allow_redirects=True, proxy=PROXY_URL) as file_response:
+            async with session.get(download_link, headers=download_headers, allow_redirects=True,
+                                   proxy=PROXY_URL) as file_response:
                 print(f"📋 Статус ответа: {file_response.status}")
                 print(f"📋 Заголовки ответа: {dict(file_response.headers)}")
 
                 if file_response.status == 200:
                     content = await file_response.read()
-                    print(f"📊 Размер файла: {len(content)} байт")
+                    file_size = len(content)
+                    print(f"📊 Размер файла: {file_size} байт")
 
                     # Проверяем, что это PDF
-                    if len(content) > 1000 and content[:4].startswith(b'%PDF'):
+                    if file_size > 1000 and content[:4].startswith(b'%PDF'):
                         print("✅ Получен валидный PDF")
 
                         # Получаем имя файла из заголовков
@@ -634,11 +635,16 @@ async def get_egrul_extract(inn: str) -> dict:
                             f.write(content)
 
                         print(f"✅ Файл сохранён: {filepath}")
+
+                        # ВОЗВРАЩАЕМ ВСЕ НЕОБХОДИМЫЕ ДАННЫЕ
                         return {
                             'success': True,
                             'filename': filename,
                             'filepath': filepath,
-                            'org_name': org_name
+                            'org_name': org_name,
+                            't_value': t_value,  # для ссылки
+                            'file_size': file_size // 1024,  # размер в КБ
+                            'download_link': download_link  # прямая ссылка
                         }
                     else:
                         print(f"❌ Файл не является PDF или слишком мал")

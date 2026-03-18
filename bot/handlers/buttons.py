@@ -317,51 +317,114 @@ async def handle_user_input(message: Message):
     ###########################################################################
 
     elif search_type == "extract":
+
         stats.log_command(user_id, "extract")
 
         if not text.isdigit() or len(text) not in (10, 12):
             await message.answer(
+
                 "❌ ИНН должен содержать 10 или 12 цифр.\nПопробуйте ещё раз:",
+
                 reply_markup=get_cancel_inline_keyboard()
+
             )
+
             return
 
         wait_msg = await message.answer(
-            "📄 <b>Запрашиваю выписку...</b>\n"
+
+            "📄 <b>Получаю выписку...</b>\n"
+
             "<i>Обычно это занимает 10-20 секунд</i>",
+
             parse_mode="HTML"
+
         )
 
+        # Получаем и ссылку, и файл
+
         result = await get_egrul_extract(text)
+
         await wait_msg.delete()
 
         if 'error' in result:
+
             await message.answer(
+
                 f"❌ {result['error']}",
+
                 reply_markup=get_main_inline_keyboard()
-            )
-        else:
-            document = FSInputFile(result['filepath'])
-            await message.answer_document(
-                document,
-                caption=(
-                    "✅ <b>Выписка получена!</b>\n"
-                    f"📄 {result['org_name'][:200]}...\n"
-                    '<i>Источник: </i><a href="https://egrul.nalog.ru">ФНС России</a>'
-                ),
-                parse_mode="HTML",
-                reply_markup=get_main_inline_keyboard()
+
             )
 
+        else:
+
+            # 1. СНАЧАЛА ОТПРАВЛЯЕМ ССЫЛКУ (мгновенно)
+
+            await message.answer(
+
+                f"✅ <b>Выписка готова!</b>\n\n"
+
+                f"🔗 <a href='{result['download_link']}'>Скачать PDF</a>\n\n"
+
+                f"📄 Файл: {result['org_name'][:100]}...\n"
+
+                f"💾 Размер: {result['file_size']} КБ",
+
+                parse_mode="HTML",
+
+                reply_markup=get_main_inline_keyboard()
+
+            )
+
+            # 2. ПРОБУЕМ ОТПРАВИТЬ ФАЙЛ (если получится)
+
             try:
-                os.remove(result['filepath'])
-                print(f"🗑️ Файл удалён: {result['filepath']}")
+
+                document = FSInputFile(result['filepath'])
+
+                await message.answer_document(
+
+                    document,
+
+                    caption=f"📎 {result['org_name'][:100]}...",
+
+                    request_timeout=180  # 3 минуты на отправку
+
+                )
+
+                logger.info(f"✅ Файл успешно отправлен: {result['filepath']}")
+
             except Exception as e:
-                print(f"⚠️ Не удалось удалить файл: {e}")
+
+                logger.error(f"⚠️ Не удалось отправить файл: {e}")
+
+                await message.answer(
+
+                    "⚠️ Файл не удалось отправить через Telegram,\n"
+
+                    "но вы можете скачать его по ссылке выше.",
+
+                    reply_markup=get_main_inline_keyboard()
+
+                )
+
+            finally:
+
+                # Удаляем временный файл в любом случае
+
+                try:
+
+                    os.remove(result['filepath'])
+
+                    logger.info(f"🗑️ Временный файл удалён: {result['filepath']}")
+
+                except Exception as e:
+
+                    logger.error(f"⚠️ Не удалось удалить файл: {e}")
 
         if user_id in user_states:
             del user_states[user_id]
-
     ###########################################################################
     # ПОИСК В ГОСЗАКУПКАХ (1 ШАГ)
     ###########################################################################

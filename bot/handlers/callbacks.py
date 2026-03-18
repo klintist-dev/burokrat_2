@@ -24,7 +24,84 @@ logger = logging.getLogger(__name__)
 
 router = Router()
 
-# ... (существующие callback'и остаются без изменений) ...
+
+@router.callback_query(F.data == "menu_find_inn")
+async def callback_find_inn(callback: CallbackQuery):
+    """Поиск ИНН по названию"""
+    await callback.answer()
+    user_id = callback.from_user.id
+    user_states[user_id] = "name_step1"
+
+    content = Text(
+        Bold("🔍 Поиск ИНН по названию"), "\n\n",
+        "Введите **название организации** (ЮЛ, ИП или физического лица):\n\n",
+        Italic("Например: ООО Ромашка, ИП Иванов, Яндекс, Сбербанк")
+    )
+    await callback.message.answer(**content.as_kwargs())
+
+
+@router.callback_query(F.data == "menu_extract")
+async def callback_extract(callback: CallbackQuery):
+    """Выписка из ЕГРЮЛ"""
+    await callback.answer()
+    user_id = callback.from_user.id
+    user_states[user_id] = "extract"
+
+    await callback.message.answer(
+        "📄 <b>Получение выписки из ЕГРЮЛ</b>\n\n"
+        "Введите <b>ИНН организации</b>, и я пришлю ссылку на официальную выписку.\n\n"
+        "<i>Например: 4707013298, 7707083893</i>",
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data == "menu_ask")
+async def callback_ask(callback: CallbackQuery):
+    """Вопрос GigaChat"""
+    await callback.answer()
+    user_id = callback.from_user.id
+    user_states[user_id] = "ask"
+
+    content = Text(
+        Bold("💬 Задать вопрос GigaChat"), "\n\n",
+        "Задайте любой вопрос. Я постараюсь помочь.\n\n",
+        Italic("Например: Что такое ОКВЭД? Как составить договор?")
+    )
+    await callback.message.answer(**content.as_kwargs())
+
+
+@router.callback_query(F.data == "menu_doc")
+async def callback_doc(callback: CallbackQuery):
+    """Составление документа"""
+    await callback.answer()
+    user_id = callback.from_user.id
+    user_states[user_id] = "doc"
+
+    content = Text(
+        Bold("✍️ Составить документ"), "\n\n",
+        "Опишите, какой документ вам нужен, и я помогу его составить.\n\n",
+        Italic("Например: заявление на отпуск, претензия в магазин, договор аренды")
+    )
+    await callback.message.answer(**content.as_kwargs())
+
+
+@router.callback_query(F.data == "menu_help")
+async def callback_help(callback: CallbackQuery):
+    """Помощь"""
+    await callback.answer()
+
+    await callback.message.answer(
+        "❓ <b>Помощь</b>\n\n"
+        "Я умею:\n"
+        "🔍 <b>Найти ИНН по названию</b>\n"
+        "📄 <b>Получить выписку из ЕГРЮЛ</b>\n"
+        "💬 <b>Отвечать на вопросы</b> (GigaChat)\n"
+        "✍️ <b>Составлять документы</b> (GigaChat)\n"
+        "🏛 <b>Искать контракты в госзакупках</b>\n\n"
+        "Выберите нужную кнопку в меню ниже.",
+        parse_mode="HTML",
+        reply_markup=get_main_inline_keyboard()
+    )
 
 @router.callback_query(F.data.startswith("contract_details_"))
 async def callback_contract_details(callback: CallbackQuery):
