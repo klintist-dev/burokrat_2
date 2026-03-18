@@ -584,48 +584,142 @@ async def handle_user_input(message: Message):
             del user_states[user_id]
 
 
-def format_contract_details(details: Dict, index: int) -> str:
-    """Форматирует детальную информацию о контракте"""
-    text = f"📋 <b>Детали контракта #{index}</b>\n\n"
+def format_contract_details(details: dict, index: int, current_tab: str = 'all') -> str:
+    """Форматирует детали контракта для отображения"""
+    text = f"📄 <b>Детали контракта #{index}</b>\n\n"
 
-    text += f"<b>Номер:</b> {details.get('number', 'N/A')}\n"
-    text += f"<b>Статус:</b> {details.get('status', 'N/A')}\n"
-    text += f"<b>Цена:</b> {details.get('price', 'N/A')}\n\n"
+    # Основная информация
+    text += f"<b>Номер:</b> {details.get('number', 'Не указан')}\n"
+    text += f"<b>Статус:</b> {details.get('status', 'Не указан')}\n"
+    text += f"<b>Цена:</b> {details.get('price', 'Не указана')}\n\n"
 
-    if details.get('customer'):
-        text += f"<b>Заказчик:</b>\n"
-        text += f"{details['customer'].get('name', 'N/A')}\n"
-        if details['customer'].get('code'):
-            text += f"Код: {details['customer']['code']}\n"
-        text += "\n"
+    # Заказчик
+    customer = details.get('customer', {})
+    if customer:
+        text += f"<b>Заказчик:</b> {customer.get('name', 'Не указан')}\n"
+        if customer.get('inn'):
+            text += f"<b>ИНН заказчика:</b> {customer.get('inn')}\n"
 
-    if details.get('supplier'):
-        text += f"<b>Поставщик:</b>\n"
-        text += f"{details['supplier'].get('name', 'N/A')}\n\n"
+    # Поставщик (если есть)
+    supplier = details.get('supplier', {})
+    if supplier:
+        text += f"<b>Поставщик:</b> {supplier.get('name', 'Не указан')}\n"
+        if supplier.get('inn'):
+            text += f"<b>ИНН поставщика:</b> {supplier.get('inn')}\n"
 
-    if details.get('dates'):
-        text += f"<b>Даты:</b>\n"
-        if details['dates'].get('conclusion'):
-            text += f"• Заключение: {details['dates']['conclusion']}\n"
-        if details['dates'].get('execution'):
-            text += f"• Исполнение до: {details['dates']['execution']}\n"
-        if details['dates'].get('published'):
-            text += f"• Опубликован: {details['dates']['published']}\n"
-        if details['dates'].get('updated'):
-            text += f"• Обновлён: {details['dates']['updated']}\n"
+    text += "\n"
 
-    # Информация о документах по вкладкам
+    # Даты
+    dates = details.get('dates', {})
+    text += "<b>Даты:</b>\n"
+    text += f"• Заключение: {dates.get('conclusion', 'Не указана')}\n"
+    text += f"• Исполнение до: {dates.get('execution', 'Не указана')}\n\n"
+
+    # Статистика по документам
     docs_by_tab = details.get('documents_by_tab', {})
-    total_docs = len(details.get('documents', []))
+    total_docs = details.get('total_documents', 0)
 
-    text += f"\n<b>📎 Документы:</b> {total_docs}\n"
+    text += f"<b>Всего документов: {total_docs}</b>\n"
+    for tab_name, docs in docs_by_tab.items():
+        # Преобразуем названия вкладок
+        tab_display = {
+            'attachments': '📎 Вложения',
+            'execution': '📊 Исполнение',
+            'payments': '💰 Платежи'
+        }.get(tab_name, tab_name)
+        text += f"• {tab_display}: {len(docs)}\n"
 
-    if docs_by_tab.get('attachments'):
-        text += f"   • Вложения: {len(docs_by_tab['attachments'])} шт.\n"
-    if docs_by_tab.get('execution'):
-        text += f"   • Исполнение: {len(docs_by_tab['execution'])} шт.\n"
-    if docs_by_tab.get('payments'):
-        text += f"   • Платежи: {len(docs_by_tab['payments'])} шт.\n"
+    text += "\n"
+
+    # Если выбрана конкретная вкладка, показываем документы
+    if current_tab != 'all':
+        # Сопоставляем русское название с ключом
+        tab_mapping = {
+            'Вложения': 'attachments',
+            'Исполнение': 'execution',
+            'Платежи': 'payments'
+        }
+        tab_key = tab_mapping.get(current_tab)
+
+        if tab_key and tab_key in docs_by_tab:
+            docs = docs_by_tab[tab_key]
+            if docs:
+                text += f"<b>📂 Документы вкладки '{current_tab}':</b>\n\n"
+                for i, doc in enumerate(docs, 1):
+                    # Обрезаем слишком длинные названия
+                    title = doc.get('title', 'Без названия')
+                    if len(title) > 50:
+                        title = title[:47] + "..."
+
+                    # Добавляем иконку в зависимости от типа
+                    doc_type = doc.get('type', 'unknown')
+                    icon = {
+                        'PDF': '📕',
+                        'RAR': '📦',
+                        'XML': '📄',
+                        'HTML': '🌐',
+                        'unknown': '📎'
+                    }.get(doc_type, '📎')
+
+                    text += f"{icon} <b>{i}.</b> {title}\n"
+                    text += f"   <i>Тип: {doc_type}</i>\n"
+
+                    # Добавляем ссылку для скачивания
+                    if doc.get('url'):
+                        text += f"   🔗 <a href='{doc['url']}'>Скачать</a>\n"
+
+                    text += "\n"
+            else:
+                text += f"📭 Вкладка '{current_tab}' не содержит документов\n"
+        else:
+            text += f"📭 Вкладка '{current_tab}' не найдена\n"
+
+    text += "\n👇 <i>Нажмите на кнопку с названием вкладки для просмотра документов</i>"
 
     return text
 
+def format_document_list(documents: List[Dict], tab_name: str, start_idx: int = 1) -> str:
+    """Форматирует список документов компактно"""
+
+    # Иконка для вкладки
+    tab_icons = {
+        'Вложения': '📁',
+        'Исполнение': '📊',
+        'Платежи': '💰',
+        'Другие': '📎'
+    }
+    icon = tab_icons.get(tab_name, '📄')
+
+    text = f"{icon} <b>{tab_name} ({len(documents)})</b>\n"
+    text += "══════════════════════\n\n"
+
+    for i, doc in enumerate(documents[:10], start_idx):
+        # Иконка типа документа
+        doc_type = doc.get('type', 'unknown')
+        type_icon = {
+            'PDF': '📕',
+            'RAR': '📦',
+            'XML': '📄',
+            'HTML': '🌐',
+            'unknown': '📎'
+        }.get(doc_type, '📎')
+
+        # Название (обрезаем)
+        title = doc.get('title', 'Документ')
+        if len(title) > 60:
+            title = title[:57] + "..."
+
+        # Добавляем размер для первых 5 документов
+        if i <= 5 and doc.get('size'):
+            text += f"{type_icon} <b>{i}.</b> {title} ({doc['size']})\n"
+        else:
+            text += f"{type_icon} <b>{i}.</b> {title}\n"
+
+    if len(documents) > 10:
+        text += f"\n... и ещё {len(documents) - 10} документов\n"
+
+    text += "\n────────────────────────────\n"
+    text += "🔍 Нажмите на <b>номер документа</b>\n"
+    text += "   чтобы получить ссылку для скачивания"
+
+    return text

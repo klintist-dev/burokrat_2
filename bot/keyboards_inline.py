@@ -5,12 +5,23 @@ from typing import List, Dict
 def get_main_inline_keyboard():
     """Главная клавиатура с кнопками"""
     buttons = [
+        # Первая строка: поиск ИНН
         [InlineKeyboardButton(text="🔍 Найти ИНН по названию", callback_data="menu_find_inn")],
-        [InlineKeyboardButton(text="📄 Выписка из ЕГРЮЛ (официально)", callback_data="menu_extract")],
-        [InlineKeyboardButton(text="💬 Задать вопрос GigaChat", callback_data="menu_ask")],
-        [InlineKeyboardButton(text="✍️ Составить документ", callback_data="menu_doc")],
-        [InlineKeyboardButton(text="❓ Помощь", callback_data="menu_help")],
-        [InlineKeyboardButton(text="🏛 Поиск в госзакупках", callback_data="menu_goszakupki")]
+
+        # Вторая строка: выписка ФНС
+        [InlineKeyboardButton(text="📄 Выписка из ЕГРЮЛ", callback_data="menu_extract")],
+
+        # Третья строка: госзакупки (под выпиской)
+        [InlineKeyboardButton(text="🏛 Поиск в госзакупках", callback_data="menu_goszakupki")],
+
+        # Четвёртая строка: GigaChat и документы вместе
+        [
+            InlineKeyboardButton(text="💬 GigaChat", callback_data="menu_ask"),
+            InlineKeyboardButton(text="✍️ Документы", callback_data="menu_doc")
+        ],
+
+        # Пятая строка: помощь (в самом низу)
+        [InlineKeyboardButton(text="❓ Помощь", callback_data="menu_help")]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -96,7 +107,7 @@ def get_contract_details_keyboard(contract_url: str, index: int):
 
 
 def get_documents_keyboard(documents: List[Dict], contract_index: int, current_tab: str = "all"):
-    """Клавиатура для выбора документа для скачивания (с группировкой по вкладкам)"""
+    """Упрощённая клавиатура с кнопками вкладок"""
     buttons = []
 
     if not documents:
@@ -115,67 +126,25 @@ def get_documents_keyboard(documents: List[Dict], contract_index: int, current_t
                 docs_by_tab[tab] = []
             docs_by_tab[tab].append(doc)
 
-        # Сортируем вкладки в нужном порядке
+        # Сортируем вкладки
         tab_order = ['Вложения', 'Исполнение', 'Платежи', 'Другие']
-
-        # Кнопки для переключения между вкладками
         tab_buttons = []
+
         for tab in tab_order:
             if tab in docs_by_tab and docs_by_tab[tab]:
-                # Если это текущая вкладка, показываем её как текст
-                if tab == current_tab:
-                    tab_buttons.append(
-                        InlineKeyboardButton(
-                            text=f"📌 {tab} ({len(docs_by_tab[tab])})",
-                            callback_data="noop"
-                        )
+                count = len(docs_by_tab[tab])
+                tab_buttons.append(
+                    InlineKeyboardButton(
+                        text=f"📁 {tab} ({count})",
+                        callback_data=f"tab_{contract_index}_{tab}"
                     )
-                else:
-                    tab_buttons.append(
-                        InlineKeyboardButton(
-                            text=f"📁 {tab} ({len(docs_by_tab[tab])})",
-                            callback_data=f"tab_{contract_index}_{tab}"
-                        )
-                    )
-
-        # Добавляем кнопки вкладок (по 2 в ряд)
-        if tab_buttons:
-            for i in range(0, len(tab_buttons), 2):
-                buttons.append(tab_buttons[i:i + 2])
-
-        # Если выбрана конкретная вкладка, показываем документы из неё
-        if current_tab != "all" and current_tab in docs_by_tab:
-            docs_to_show = docs_by_tab[current_tab]
-        else:
-            # Иначе показываем все документы (первые 10)
-            docs_to_show = documents[:10]
-
-        # Документы
-        for i, doc in enumerate(docs_to_show[:10]):
-            doc_type = doc.get('type', 'unknown')
-            doc_icon = {
-                'PDF': '📕',
-                'RAR': '📦',
-                'XML': '📄',
-                'HTML': '🌐',
-                'unknown': '📎'
-            }.get(doc_type, '📎')
-
-            title = doc.get('title', 'Документ')
-            if len(title) > 40:
-                title = title[:37] + "..."
-
-            # Находим глобальный индекс документа
-            global_idx = documents.index(doc) + 1
-
-            buttons.append([
-                InlineKeyboardButton(
-                    text=f"{doc_icon} {title}",
-                    callback_data=f"download_doc_{contract_index}_{global_idx}"
                 )
-            ])
 
-    # Кнопки навигации
+        # Добавляем кнопки вкладок по 2 в ряд
+        for i in range(0, len(tab_buttons), 2):
+            buttons.append(tab_buttons[i:i + 2])
+
+    # Кнопка возврата к деталям
     buttons.append([
         InlineKeyboardButton(
             text="◀️ Назад к деталям",
@@ -183,6 +152,7 @@ def get_documents_keyboard(documents: List[Dict], contract_index: int, current_t
         )
     ])
 
+    # 🔥 НОВАЯ КНОПКА: Главное меню
     buttons.append([
         InlineKeyboardButton(
             text="🏠 Главное меню",
@@ -192,7 +162,6 @@ def get_documents_keyboard(documents: List[Dict], contract_index: int, current_t
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-
 def get_back_to_contracts_keyboard():
     """Простая клавиатура для возврата к списку"""
     buttons = [
@@ -200,7 +169,7 @@ def get_back_to_contracts_keyboard():
             text="◀️ Назад к списку контрактов",
             callback_data="back_to_contracts"
         )],
-        [InlineKeyboardButton(
+        [InlineKeyboardButton(  # 🔥 Добавляем главное меню
             text="🏠 Главное меню",
             callback_data="menu_back"
         )]
@@ -216,11 +185,77 @@ def get_document_link_keyboard(doc_url: str):
         )],
         [InlineKeyboardButton(
             text="📋 Копировать ссылку",
-            callback_data=f"copy_link_{doc_url[:50]}"  # ограничение длины
+            callback_data=f"copy_link_{doc_url[:50]}"
         )],
         [InlineKeyboardButton(
             text="◀️ Назад к документам",
             callback_data="back_to_contract_details"
+        )],
+        [InlineKeyboardButton(  # 🔥 Добавить эту кнопку
+            text="🏠 Главное меню",
+            callback_data="menu_back"
+        )]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_document_navigation_keyboard(contract_index: int, tab_name: str, total_docs: int):
+    """Клавиатура для навигации по документам"""
+    buttons = []
+
+    # Кнопки для первых 5 документов
+    row = []
+    for i in range(1, min(6, total_docs + 1)):
+        row.append(
+            InlineKeyboardButton(
+                text=str(i),
+                callback_data=f"doc_{contract_index}_{tab_name}_{i}"
+            )
+        )
+    if row:
+        buttons.append(row)
+
+    # Кнопки для следующих 5 (если есть)
+    if total_docs > 5:
+        row = []
+        for i in range(6, min(11, total_docs + 1)):
+            row.append(
+                InlineKeyboardButton(
+                    text=str(i),
+                    callback_data=f"doc_{contract_index}_{tab_name}_{i}"
+                )
+            )
+        if row:
+            buttons.append(row)
+
+    # Кнопки навигации
+    buttons.append([
+        InlineKeyboardButton(
+            text="◀️ Назад к вкладкам",
+            callback_data="back_to_tabs"
+        )
+    ])
+
+    buttons.append([
+        InlineKeyboardButton(
+            text="🏠 Главное меню",
+            callback_data="menu_back"
+        )
+    ])
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_back_to_tabs_keyboard(contract_index: int):
+    """Клавиатура для возврата к вкладкам"""
+    buttons = [
+        [InlineKeyboardButton(
+            text="◀️ Назад к списку вкладок",
+            callback_data=f"back_to_tabs_{contract_index}"
+        )],
+        [InlineKeyboardButton(
+            text="🏠 Главное меню",
+            callback_data="menu_back"
         )]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
