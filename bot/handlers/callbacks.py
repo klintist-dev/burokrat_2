@@ -433,3 +433,30 @@ async def process_contract_details(message: Message, user_id: int, wait_msg_id: 
             f"❌ Произошла ошибка при загрузке деталей",
             reply_markup=get_back_to_contracts_keyboard()
         )
+
+
+@router.callback_query(F.data == "menu_back")
+async def callback_menu_back(callback: CallbackQuery):
+    """Возврат в главное меню"""
+    await callback.answer()
+
+    user_id = callback.from_user.id
+
+    # Очищаем состояние пользователя
+    if user_id in user_states:
+        del user_states[user_id]
+    if user_id in user_data:
+        # Удаляем только данные, связанные с текущим контекстом
+        keys_to_keep = ['statistics']  # если есть что-то, что нужно сохранить
+        user_data[user_id] = {k: user_data[user_id][k] for k in keys_to_keep if k in user_data[user_id]}
+
+    # Отправляем главное меню
+    content = Text(
+        Bold("🏠 Главное меню"), "\n\n",
+        "Выберите нужное действие:"
+    )
+
+    await callback.message.answer(
+        **content.as_kwargs(),
+        reply_markup=get_main_inline_keyboard()
+    )
