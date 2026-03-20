@@ -29,3 +29,5 @@ test_config.py
 # Data files
 data/
 *.pdf
+
+My_TEST.py

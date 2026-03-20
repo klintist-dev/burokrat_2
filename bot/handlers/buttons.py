@@ -218,11 +218,19 @@ async def send_goszakupki_page(message: Message, user_id: int):
         # Небольшая задержка между сообщениями, чтобы не спамить
         await asyncio.sleep(0.3)
 
-    # Клавиатура пагинации отдельным сообщением
-    from bot.keyboards_inline import get_pagination_keyboard
+    # 🔥 ИЗМЕНЕНИЕ ЗДЕСЬ: Создаём клавиатуру с пагинацией И экспортом
+    from bot.keyboards_inline import get_pagination_keyboard, add_export_button_to_contracts_keyboard
+
+    # Создаём базовую клавиатуру пагинации
+    pagination_keyboard = get_pagination_keyboard(page, total_pages, "goszakupki")
+
+    # Добавляем кнопку экспорта
+    final_keyboard = add_export_button_to_contracts_keyboard(pagination_keyboard)
+
+    # Отправляем сообщение с навигацией и экспортом
     await message.answer(
-        "📌 Навигация:",
-        reply_markup=get_pagination_keyboard(page, total_pages, "goszakupki")
+        "📌 Навигация и экспорт:",
+        reply_markup=final_keyboard
     )
 
 async def handle_user_input(message: Message):

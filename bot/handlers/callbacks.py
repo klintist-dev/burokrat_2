@@ -19,6 +19,9 @@ from bot.keyboards_inline import (
 from bot.states import user_states, user_data
 from bot.handlers.buttons import send_goszakupki_page, format_contract_details
 
+from bot.services.exports.export_service import ExportService
+import os
+
 import logging
 
 logger = logging.getLogger(__name__)
@@ -530,6 +533,221 @@ async def process_contract_details(message: Message, user_id: int, wait_msg_id: 
             f"❌ Произошла ошибка при загрузке деталей",
             reply_markup=get_back_to_contracts_keyboard()
         )
+
+
+@router.callback_query(F.data == "show_export_menu")
+async def callback_show_export_menu(callback: CallbackQuery):
+    """Показывает меню экспорта"""
+    await callback.answer()
+
+    await callback.message.answer(
+        "📊 <b>Экспорт данных</b>\n\n"
+        "Выберите формат для экспорта найденных контрактов:\n\n"
+        "• <b>Excel</b> - с группировкой по годам\n"
+        "• <b>CSV</b> - простой табличный формат\n"
+        "• <b>TXT</b> - детальная информация\n"
+        "• <b>Все форматы</b> - сразу все варианты",
+        parse_mode="HTML",
+        reply_markup=get_export_keyboard()
+    )
+
+
+@router.callback_query(F.data == "export_excel")
+async def callback_export_excel(callback: CallbackQuery):
+    """Экспорт в Excel"""
+    await callback.answer("⏳ Формирую Excel файл...")
+
+    user_id = callback.from_user.id
+    user_data_dict = user_data.get(user_id, {})
+    results = user_data_dict.get('goszakupki_results', {})
+    contracts = results.get('contracts', [])
+
+    if not contracts:
+        await callback.message.answer("❌ Нет контрактов для экспорта")
+        return
+
+    wait_msg = await callback.message.answer("📊 Создаю Excel файл...")
+
+    try:
+        export_service = ExportService(user_id)
+        filepath = await export_service.export_contracts_to_excel(contracts)
+
+        document = FSInputFile(filepath)
+        await callback.message.answer_document(
+            document,
+            caption=f"✅ Экспортировано контрактов: {len(contracts)}\n"
+                    f"📊 Формат: Excel\n"
+                    f"📁 Сгруппировано по годам",
+            reply_markup=get_main_inline_keyboard()
+        )
+
+        # Очищаем старые файлы
+        export_service.cleanup_old_files()
+
+    except Exception as e:
+        logger.error(f"❌ Ошибка Excel экспорта: {e}")
+        await callback.message.answer(
+            f"❌ Ошибка при создании файла: {str(e)[:200]}",
+            reply_markup=get_main_inline_keyboard()
+        )
+    finally:
+        # Удаляем временный файл после отправки
+        try:
+            os.remove(filepath)
+        except:
+            pass
+        await wait_msg.delete()
+
+
+@router.callback_query(F.data == "export_csv")
+async def callback_export_csv(callback: CallbackQuery):
+    """Экспорт в CSV"""
+    await callback.answer("⏳ Формирую CSV файл...")
+
+    user_id = callback.from_user.id
+    user_data_dict = user_data.get(user_id, {})
+    results = user_data_dict.get('goszakupki_results', {})
+    contracts = results.get('contracts', [])
+
+    if not contracts:
+        await callback.message.answer("❌ Нет контрактов для экспорта")
+        return
+
+    wait_msg = await callback.message.answer("📊 Создаю CSV файл...")
+
+    try:
+        export_service = ExportService(user_id)
+        filepath = await export_service.export_contracts_to_csv(contracts)
+
+        document = FSInputFile(filepath)
+        await callback.message.answer_document(
+            document,
+            caption=f"✅ Экспортировано контрактов: {len(contracts)}\n"
+                    f"📄 Формат: CSV",
+            reply_markup=get_main_inline_keyboard()
+        )
+
+        export_service.cleanup_old_files()
+
+    except Exception as e:
+        logger.error(f"❌ Ошибка CSV экспорта: {e}")
+        await callback.message.answer(
+            f"❌ Ошибка при создании файла: {str(e)[:200]}",
+            reply_markup=get_main_inline_keyboard()
+        )
+    finally:
+        try:
+            os.remove(filepath)
+        except:
+            pass
+        await wait_msg.delete()
+
+
+@router.callback_query(F.data == "export_all")
+async def callback_export_all(callback: CallbackQuery):
+    """Экспорт во все форматы сразу"""
+    await callback.answer("⏳ Формирую все форматы...")
+
+    user_id = callback.from_user.id
+    user_data_dict = user_data.get(user_id, {})
+    results = user_data_dict.get('goszakupki_results', {})
+    contracts = results.get('contracts', [])
+
+    if not contracts:
+        await callback.message.answer("❌ Нет контрактов для экспорта")
+        return
+
+    wait_msg = await callback.message.answer(
+        "📊 Создаю файлы в разных форматах...\n"
+        "<i>Это может занять несколько секунд</i>",
+        parse_mode="HTML"
+    )
+
+    try:
+        export_service = ExportService(user_id)
+
+        # Создаём файлы в разных форматах
+        excel_file = await export_service.export_contracts_to_excel(contracts)
+        csv_file = await export_service.export_contracts_to_csv(contracts)
+
+        # Отправляем Excel
+        await callback.message.answer_document(
+            FSInputFile(excel_file),
+            caption="📊 Excel формат (с группировкой по годам)"
+        )
+
+        # Отправляем CSV
+        await callback.message.answer_document(
+            FSInputFile(csv_file),
+            caption="📄 CSV формат (табличные данные)"
+        )
+
+        await callback.message.answer(
+            "✅ Все файлы отправлены!",
+            reply_markup=get_main_inline_keyboard()
+        )
+
+        export_service.cleanup_old_files()
+
+    except Exception as e:
+        logger.error(f"❌ Ошибка экспорта: {e}")
+        await callback.message.answer(
+            f"❌ Ошибка при создании файлов: {str(e)[:200]}",
+            reply_markup=get_main_inline_keyboard()
+        )
+    finally:
+        # Очищаем файлы
+        try:
+            os.remove(excel_file)
+            os.remove(csv_file)
+        except:
+            pass
+        await wait_msg.delete()
+
+
+@router.callback_query(F.data.startswith("export_contract_txt_"))
+async def callback_export_contract_txt(callback: CallbackQuery):
+    """Экспорт деталей конкретного контракта в TXT"""
+    await callback.answer("⏳ Формирую файл...")
+
+    contract_index = int(callback.data.split("_")[-1])
+    user_id = callback.from_user.id
+
+    user_data_dict = user_data.get(user_id, {})
+    current_contract = user_data_dict.get('current_contract', {})
+    details = current_contract.get('details', {})
+
+    if not details:
+        await callback.message.answer("❌ Детали контракта не найдены")
+        return
+
+    wait_msg = await callback.message.answer("📑 Создаю текстовый файл с деталями...")
+
+    try:
+        export_service = ExportService(user_id)
+        filepath = await export_service.export_contract_details_to_txt(details, contract_index)
+
+        document = FSInputFile(filepath)
+        await callback.message.answer_document(
+            document,
+            caption=f"✅ Детали контракта #{contract_index}",
+            reply_markup=get_back_to_contract_details_keyboard()
+        )
+
+        export_service.cleanup_old_files()
+
+    except Exception as e:
+        logger.error(f"❌ Ошибка TXT экспорта: {e}")
+        await callback.message.answer(
+            f"❌ Ошибка: {str(e)[:200]}",
+            reply_markup=get_back_to_contract_details_keyboard()
+        )
+    finally:
+        try:
+            os.remove(filepath)
+        except:
+            pass
+        await wait_msg.delete()
 
 
 @router.callback_query(F.data == "menu_back")

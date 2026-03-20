@@ -259,3 +259,46 @@ def get_back_to_tabs_keyboard(contract_index: int):
         )]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_export_keyboard():
+    """Клавиатура для выбора формата экспорта"""
+    buttons = [
+        [
+            InlineKeyboardButton(text="📊 Excel", callback_data="export_excel"),
+            InlineKeyboardButton(text="📄 CSV", callback_data="export_csv")
+        ],
+        [
+            InlineKeyboardButton(text="📑 TXT (детали)", callback_data="export_txt"),
+            InlineKeyboardButton(text="📋 Все форматы", callback_data="export_all")
+        ],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="menu_back")]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_contract_export_keyboard(contract_index: int):
+    """Клавиатура для экспорта конкретного контракта"""
+    buttons = [
+        [InlineKeyboardButton(
+            text="📑 Экспорт деталей (TXT)",
+            callback_data=f"export_contract_txt_{contract_index}"
+        )],
+        [InlineKeyboardButton(
+            text="📊 Экспорт всех контрактов",
+            callback_data="export_all_contracts"
+        )],
+        [InlineKeyboardButton(
+            text="◀️ Назад к деталям",
+            callback_data="back_to_contract_details"
+        )]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def add_export_button_to_contracts_keyboard(keyboard: InlineKeyboardMarkup) -> InlineKeyboardMarkup:
+    """Добавляет кнопку экспорта к существующей клавиатуре контрактов"""
+    # Добавляем кнопку экспорта в конец
+    keyboard.inline_keyboard.append([
+        InlineKeyboardButton(text="📊 Экспорт данных", callback_data="show_export_menu")
+    ])
+    return keyboard
