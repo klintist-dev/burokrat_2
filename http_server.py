@@ -103,11 +103,16 @@ async def health_check(request):
     """Проверка работоспособности сервера"""
     return web.json_response({'status': 'ok', 'service': 'Burokrat HTTP API'})
 
+async def handle_options(request):
+    """Обработчик OPTIONS запросов для CORS"""
+    return web.Response(status=200)
 
 # Создаём приложение
 app = web.Application()
 app.router.add_post('/api/search', handle_search)
+app.router.add_options('/api/search', handle_options)  # <-- Добавить эту строку
 app.router.add_get('/', health_check)
+app.router.add_get('/api/health', health_check)
 
 
 async def main():
