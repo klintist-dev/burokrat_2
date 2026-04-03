@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 class GosZakupkiParser:
     """
-    Парсер для поиска контрактов по ИНН поставщика и получения деталей контракта
+    Парсер для поиска контрактов по ИНН поставщика/заказчика и получения деталей контракта
     """
 
     BASE_URL = "https://zakupki.gov.ru"
@@ -119,6 +119,8 @@ class GosZakupkiParser:
 
         return True
 
+    # ==================== ПОИСК ПО ПОСТАВЩИКУ ====================
+
     def search_by_supplier_inn(self, inn: str) -> Dict:
         """
         Поиск контрактов по ИНН поставщика с обходом всех страниц
@@ -197,6 +199,192 @@ class GosZakupkiParser:
         except Exception as e:
             logger.error(f"❌ Ошибка при поиске для ИНН {inn}: {e}")
             return {'error': str(e), 'inn': inn, 'success': False}
+
+    # ==================== ПОИСК ПО ЗАКАЗЧИКУ ====================
+
+    def search_customer_by_inn(self, inn: str) -> Dict:
+        """
+        Поиск заказчика по ИНН через модальное окно
+        """
+        try:
+            logger.info(f"🔍 Поиск заказчика по ИНН: {inn}")
+
+            # ШАГ 1: Открываем страницу выбора организации (как при нажатии кнопки "Выбрать")
+            choose_url = f"{self.BASE_URL}/epz/organization/chooseOrganization/chooseOrganizationDialogModal.html"
+
+            params = {
+                'inputId': 'customer',
+                'page': '1',
+                'organizationType': 'ALL',
+                'placeOfSearch': 'FZ_94',
+                'withOutLaw': ''
+            }
+
+            # Получаем HTML с формой
+            response = self._make_request('GET', choose_url, params=params)
+            if not self._check_response(response):
+                return {'error': 'Ошибка загрузки формы выбора', 'success': False}
+
+            # Получаем CSRF токен из формы
+            soup = BeautifulSoup(response.text, 'lxml')
+            csrf_input = soup.find('input', {'name': '_csrf'})
+            csrf_token = csrf_input.get('value', '') if csrf_input else ''
+
+            # ШАГ 2: Отправляем поисковый запрос (как при вводе ИНН и нажатии "Найти")
+            table_url = f"{self.BASE_URL}/epz/organization/chooseOrganization/chooseOrganizationTableModal.html"
+
+            table_params = {
+                'searchString': inn,
+                'inputId': 'customer',
+                'page': '1',
+                'pageSize': '10',
+                'organizationType': 'ALL',
+                'placeOfSearch': 'FZ_94',
+                'isBm25Search': 'true'
+            }
+
+            response = self._make_request('GET', table_url, params=table_params)
+
+            if not self._check_response(response):
+                return {'error': 'Ошибка поиска заказчика', 'success': False}
+
+            soup = BeautifulSoup(response.text, 'lxml')
+
+            # Ищем таблицу с результатами
+            table = soup.find('table', class_='registry')
+            if not table:
+                return {'error': 'Организация не найдена', 'success': False}
+
+            rows = table.find_all('tr')
+            customers = []
+
+            for row in rows[1:]:  # Пропускаем заголовок
+                cols = row.find_all('td')
+                if len(cols) >= 3:
+                    # Извлекаем ID организации из radio button
+                    radio = row.find('input', type='radio')
+                    org_id = radio.get('value', '') if radio else ''
+
+                    # Название (обычно в первой колонке, может быть ссылкой)
+                    name_elem = cols[0].find('a')
+                    name = name_elem.text.strip() if name_elem else cols[0].text.strip()
+
+                    # ИНН (во второй колонке)
+                    inn_value = cols[1].text.strip() if len(cols) > 1 else ''
+
+                    # Адрес (в третьей колонке)
+                    address = cols[2].text.strip() if len(cols) > 2 else ''
+
+                    customers.append({
+                        'id': org_id,
+                        'name': name,
+                        'inn': inn_value,
+                        'address': address
+                    })
+
+            return {
+                'inn': inn,
+                'success': True,
+                'total': len(customers),
+                'customers': customers
+            }
+
+        except Exception as e:
+            logger.error(f"❌ Ошибка поиска заказчика: {e}")
+            return {'error': str(e), 'success': False}
+
+    def search_contracts_by_customer_inn(self, inn: str) -> Dict:
+        """
+        Поиск контрактов по ИНН заказчика (с обходом всех страниц)
+        """
+        try:
+            logger.info(f"🔍 Поиск контрактов для заказчика с ИНН {inn}")
+
+            # Сначала находим ID организации заказчика
+            customer_search = self.search_customer_by_inn(inn)
+            if not customer_search.get('success') or not customer_search.get('customers'):
+                return {
+                    'inn': inn,
+                    'total': 0,
+                    'contracts': [],
+                    'success': False,
+                    'error': 'Заказчик не найден'
+                }
+
+            # Берем первого найденного заказчика
+            customer = customer_search['customers'][0]
+            customer_id = customer['id']
+            customer_name = customer['name']
+
+            logger.info(f"📋 Найден заказчик: {customer_name} (ID: {customer_id})")
+
+            # Теперь ищем контракты по ID заказчика
+            all_contracts = []
+            page = 1
+            total_pages = 1
+
+            while page <= total_pages:
+                params = {
+                    'morphology': 'on',
+                    'fz44': 'on',
+                    'contractStageList_0': 'on',
+                    'contractStageList_1': 'on',
+                    'contractStageList_2': 'on',
+                    'contractStageList_3': 'on',
+                    'contractStageList': '0,1,2,3',
+                    'selectedContractDataChanges': 'ANY',
+                    'budgetLevelsIdNameHidden': '{}',
+                    'customerIdOrg': customer_id,  # Ключевой параметр!
+                    'countryRegIdNameHidden': '{}',
+                    'sortBy': 'UPDATE_DATE',
+                    'pageNumber': str(page),
+                    'sortDirection': 'false',
+                    'recordsPerPage': '_10',
+                    'showLotsInfoHidden': 'false'
+                }
+
+                time.sleep(random.uniform(1.5, 2.5))
+
+                response = self._make_request('GET', self.SEARCH_URL, params=params)
+
+                if not self._check_response(response):
+                    break
+
+                contracts, total_on_page = self._parse_search_results(response.text)
+
+                if not contracts:
+                    logger.warning(f"⚠️ На странице {page} нет карточек, останавливаемся")
+                    break
+
+                all_contracts.extend(contracts)
+
+                if page == 1:
+                    soup = BeautifulSoup(response.text, 'lxml')
+                    total_results = self._parse_total_count(soup)
+                    if total_results > 0:
+                        total_pages = (total_results + 9) // 10
+                        logger.info(f"📊 Всего контрактов: {total_results}, страниц: {total_pages}")
+                    else:
+                        logger.warning("⚠️ Не удалось определить общее количество результатов")
+                        break
+
+                logger.info(f"📄 Страница {page}: найдено {len(contracts)} контрактов")
+                page += 1
+
+            return {
+                'inn': inn,
+                'customer_name': customer_name,
+                'customer_id': customer_id,
+                'total': len(all_contracts),
+                'contracts': all_contracts,
+                'success': True
+            }
+
+        except Exception as e:
+            logger.error(f"❌ Ошибка поиска контрактов для заказчика: {e}")
+            return {'error': str(e), 'success': False}
+
+    # ==================== ОБЩИЕ МЕТОДЫ ====================
 
     def _parse_search_results(self, html: str) -> Tuple[List[Dict], int]:
         """
@@ -531,7 +719,7 @@ class GosZakupkiParser:
             return None
 
 
-# Тестовая функция (вне класса)
+# Тестовая функция
 def test_documents_tab():
     """Тестируем получение документов с отдельной вкладки"""
 
@@ -564,14 +752,6 @@ def test_documents_tab():
             print(f"   Тип: RAR")
         elif '.xml' in href:
             print(f"   Тип: XML")
-
-    def get_document_link(self, doc_url: str) -> str:
-        """
-        Преобразует относительную ссылку в абсолютную для скачивания
-        """
-        if doc_url.startswith('/'):
-            return urljoin(self.BASE_URL, doc_url)
-        return doc_url
 
 
 if __name__ == "__main__":

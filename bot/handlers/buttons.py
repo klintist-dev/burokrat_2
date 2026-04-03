@@ -1,5 +1,6 @@
-from aiogram.types import Message, FSInputFile
+from aiogram.types import Message, FSInputFile, CallbackQuery
 from aiogram.utils.formatting import Text as FText, Bold, Italic
+from aiogram.fsm.context import FSMContext
 from bot.services.gigachat import gigachat_inn
 import asyncio
 
@@ -8,8 +9,11 @@ from bot.keyboards_inline import (
     get_main_inline_keyboard,
     get_cancel_inline_keyboard,
     get_pagination_keyboard,
-    get_contract_details_keyboard,  # добавить
-    get_documents_keyboard          # добавить (понадобится позже)
+    get_contract_details_keyboard,
+    get_documents_keyboard,
+    get_back_to_contracts_keyboard,
+    get_search_type_keyboard,
+    get_repeat_search_keyboard
 )
 
 from bot.parsers import find_inn_by_name, find_inn_by_name_with_region, get_egrul_extract
@@ -29,7 +33,18 @@ from bot.constants import ITEMS_PER_PAGE, EXIT_COMMANDS
 from typing import Dict, List, Optional, Tuple
 
 import logging
+
 logger = logging.getLogger(__name__)
+
+from aiogram.fsm.state import State, StatesGroup
+from aiogram import Router, F
+
+router = Router()
+
+
+class SearchStates(StatesGroup):
+    waiting_for_inn = State()
+    waiting_for_search_type = State()
 
 
 def format_search_results(result: dict, original_query: str, max_results: int = 4) -> str:
@@ -110,6 +125,24 @@ async def handle_inn_by_name(message: Message):
     await message.answer(**content.as_kwargs())
 
 
+async def handle_contracts_search(message: Message, state: FSMContext, user_id: int = None):
+    """Обработчик кнопки '🔍 Поиск контрактов'"""
+    if user_id is None:
+        user_id = message.from_user.id
+
+    stats.log_command(user_id, "contracts_search")
+
+    print(f"🔧 Устанавливаем состояние waiting_for_inn для user_id={user_id}")
+    await state.set_state(SearchStates.waiting_for_inn)
+    await message.answer(
+        "📋 **Поиск контрактов на портале Госзакупки**\n\n"
+        "Введите **ИНН** организации (10 или 12 цифр):\n\n"
+        "Пример: `4707025046`",
+        parse_mode="Markdown",
+        reply_markup=get_cancel_inline_keyboard()
+    )
+
+
 async def handle_extract_by_inn(message: Message):
     """Обработчик кнопки '📄 Выписка из ЕГРЮЛ (официально)'"""
     user_id = message.from_user.id
@@ -161,11 +194,13 @@ async def handle_help(message: Message):
         "Я умею:\n"
         "🔍 <b>Найти ИНН по названию</b> (с учётом региона)\n"
         "📄 <b>Получить ссылку на выписку из ЕГРЮЛ</b> (официальный PDF)\n"
+        "🔍 <b>Поиск контрактов на Госзакупках</b> (поставщик или заказчик)\n"
         "💬 <b>Отвечать на вопросы</b> (GigaChat)\n"
         "✍️ <b>Составлять документы</b> (GigaChat)\n\n"
         "📌 <b>Ссылки:</b>\n"
         '• <a href="https://www.nalog.ru">ФНС России</a>\n'
-        '• <a href="https://egrul.nalog.ru">Поиск по ЕГРЮЛ</a>\n\n'
+        '• <a href="https://egrul.nalog.ru">Поиск по ЕГРЮЛ</a>\n'
+        '• <a href="https://zakupki.gov.ru">Госзакупки</a>\n\n'
         "Просто выберите нужную кнопку и следуйте инструкциям.",
         parse_mode="HTML"
     )
@@ -207,38 +242,62 @@ async def send_goszakupki_page(message: Message, user_id: int):
             f"📝 {object_short}"
         )
 
-        # Добавляем кнопку "Подробнее"
-        from bot.keyboards_inline import get_contract_details_keyboard
         await message.answer(
             contract_text,
             parse_mode="HTML",
             reply_markup=get_contract_details_keyboard(contract['url'], i)
         )
 
-        # Небольшая задержка между сообщениями, чтобы не спамить
         await asyncio.sleep(0.3)
 
-    # 🔥 ИЗМЕНЕНИЕ ЗДЕСЬ: Создаём клавиатуру с пагинацией И экспортом
-    from bot.keyboards_inline import get_pagination_keyboard, add_export_button_to_contracts_keyboard
-
-    # Создаём базовую клавиатуру пагинации
+    from bot.keyboards_inline import add_export_button_to_contracts_keyboard
     pagination_keyboard = get_pagination_keyboard(page, total_pages, "goszakupki")
-
-    # Добавляем кнопку экспорта
     final_keyboard = add_export_button_to_contracts_keyboard(pagination_keyboard)
 
-    # Отправляем сообщение с навигацией и экспортом
     await message.answer(
         "📌 Навигация и экспорт:",
         reply_markup=final_keyboard
     )
 
-async def handle_user_input(message: Message):
+
+async def handle_user_input(message: Message, state: FSMContext):
     """
     Обрабатывает любой текст, который вводит пользователь
     """
     user_id = message.from_user.id
     text = message.text.strip()
+
+    # ОТЛАДКА: выводим текущее состояние FSM
+    current_state = await state.get_state()
+    print(f"📌 ТЕКУЩЕЕ FSM СОСТОЯНИЕ: {current_state}")
+
+    # 1. СНАЧАЛА проверяем FSM состояние
+    current_state = await state.get_state()
+    print(f"📌 ТЕКУЩЕЕ FSM СОСТОЯНИЕ: {current_state}")
+
+    if current_state == SearchStates.waiting_for_inn:
+        print("🔧 Обработка waiting_for_inn")
+        if not text.isdigit() or len(text) not in (10, 12):
+            await message.answer("❌ ИНН должен содержать 10 или 12 цифр. Попробуйте ещё раз:")
+            return
+
+        await state.update_data(search_inn=text)
+        await state.set_state(SearchStates.waiting_for_search_type)
+
+        await message.answer(
+            f"🔍 ИНН: `{text}`\n\nВыберите тип поиска:",
+            reply_markup=get_search_type_keyboard(),
+            parse_mode="Markdown"
+        )
+        return
+
+    # 2. ПОТОМ проверяем user_states (старая система)
+    if user_id not in user_states:
+        await message.answer(
+            "Сначала выберите действие, нажав на кнопку под сообщением.",
+            reply_markup=get_main_inline_keyboard()
+        )
+        return
 
     # Логируем пользователя
     username = message.from_user.username
@@ -248,6 +307,25 @@ async def handle_user_input(message: Message):
     print(f"📨 Получен текст: '{text}' от пользователя {user_id}")
     print(f"🔍 Состояние до обработки: {user_states.get(user_id)}")
     print(f"📦 Сохранённые данные: {user_data.get(user_id)}")
+
+    # Проверяем FSM состояние
+    current_state = await state.get_state()
+
+    # Обработка FSM состояния: ожидание ИНН
+    if current_state == SearchStates.waiting_for_inn:
+        if not text.isdigit() or len(text) not in (10, 12):
+            await message.answer("❌ ИНН должен содержать 10 или 12 цифр. Попробуйте ещё раз:")
+            return
+
+        await state.update_data(search_inn=text)
+        await state.set_state(SearchStates.waiting_for_search_type)
+
+        await message.answer(
+            f"🔍 ИНН: `{text}`\n\nВыберите тип поиска:",
+            reply_markup=get_search_type_keyboard(),
+            parse_mode="Markdown"
+        )
+        return
 
     if user_id not in user_states:
         await message.answer(
@@ -307,7 +385,6 @@ async def handle_user_input(message: Message):
                 reply_markup=get_main_inline_keyboard()
             )
         else:
-            # Передаём max_results=4 для отображения только 4 лучших результатов
             output = format_search_results(result, company_name, max_results=4)
             await message.answer(
                 output,
@@ -330,193 +407,83 @@ async def handle_user_input(message: Message):
 
         if not text.isdigit() or len(text) not in (10, 12):
             await message.answer(
-
                 "❌ ИНН должен содержать 10 или 12 цифр.\nПопробуйте ещё раз:",
-
                 reply_markup=get_cancel_inline_keyboard()
-
             )
-
             return
 
         wait_msg = await message.answer(
-
             "📄 <b>Получаю выписку...</b>\n"
-
             "<i>Обычно это занимает 10-20 секунд</i>",
-
             parse_mode="HTML"
-
         )
-
-        # Получаем и ссылку, и файл
 
         result = await get_egrul_extract(text)
 
         await wait_msg.delete()
 
         if 'error' in result:
-
             await message.answer(
-
                 f"❌ {result['error']}",
-
                 reply_markup=get_main_inline_keyboard()
-
             )
-
         else:
-
-            # 1. СНАЧАЛА ОТПРАВЛЯЕМ ССЫЛКУ (мгновенно)
-
             await message.answer(
-
                 f"✅ <b>Выписка готова!</b>\n\n"
-
                 f"🔗 <a href='{result['download_link']}'>Скачать PDF</a>\n\n"
-
                 f"📄 Файл: {result['org_name'][:100]}...\n"
-
                 f"💾 Размер: {result['file_size']} КБ",
-
                 parse_mode="HTML",
-
                 reply_markup=get_main_inline_keyboard()
-
             )
-
-            # 2. ПРОБУЕМ ОТПРАВИТЬ ФАЙЛ (если получится)
 
             try:
-
                 document = FSInputFile(result['filepath'])
-
                 await message.answer_document(
-
                     document,
-
                     caption=f"📎 {result['org_name'][:100]}...",
-
-                    request_timeout=180  # 3 минуты на отправку
-
+                    request_timeout=180
                 )
-
                 logger.info(f"✅ Файл успешно отправлен: {result['filepath']}")
-
             except Exception as e:
-
                 logger.error(f"⚠️ Не удалось отправить файл: {e}")
-
                 await message.answer(
-
                     "⚠️ Файл не удалось отправить через Telegram,\n"
-
                     "но вы можете скачать его по ссылке выше.",
-
                     reply_markup=get_main_inline_keyboard()
-
                 )
-
             finally:
-
-                # Удаляем временный файл в любом случае
-
                 try:
-
                     os.remove(result['filepath'])
-
                     logger.info(f"🗑️ Временный файл удалён: {result['filepath']}")
-
                 except Exception as e:
-
                     logger.error(f"⚠️ Не удалось удалить файл: {e}")
 
         if user_id in user_states:
             del user_states[user_id]
+
     ###########################################################################
-    # ПОИСК В ГОСЗАКУПКАХ (1 ШАГ)
+    # ПОИСК В ГОСЗАКУПКАХ (1 ШАГ) - СТАРЫЙ ОБРАБОТЧИК (ДЛЯ СОВМЕСТИМОСТИ)
     ###########################################################################
 
     elif search_type == "goszakupki":
-
         stats.log_command(user_id, "goszakupki")
 
         if not text.isdigit() or len(text) not in (10, 12):
             await message.answer(
-
                 "❌ ИНН должен содержать 10 или 12 цифр.\nПопробуйте ещё раз:",
-
                 reply_markup=get_cancel_inline_keyboard()
-
             )
-
             return
 
-        # Показываем "печатает..."
+        await state.update_data(search_inn=text)
+        await state.set_state(SearchStates.waiting_for_search_type)
 
-        await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
-
-        wait_msg = await message.answer(
-
-            "🏛 <b>Ищу контракты в госзакупках...</b>\n"
-
-            "<i>Это может занять 20-30 секунд</i>\n\n"
-
-            "🔍 Ищем контракты...",
-
-            parse_mode="HTML"
-
+        await message.answer(
+            f"🔍 ИНН: `{text}`\n\nВыберите тип поиска:",
+            reply_markup=get_search_type_keyboard(),
+            parse_mode="Markdown"
         )
-
-        from bot.parsers.gos_zakupki_parser import GosZakupkiParser
-
-        parser = GosZakupkiParser()
-
-        # Засекаем время
-
-        import time
-
-        start_time = time.time()
-
-        result = parser.search_by_supplier_inn(text)
-
-        elapsed = time.time() - start_time
-
-        await wait_msg.delete()
-
-        if 'error' in result:
-
-            await message.answer(
-
-                f"❌ Ошибка при поиске: {result['error']}",
-
-                reply_markup=get_main_inline_keyboard()
-
-            )
-
-        else:
-
-            contracts = result.get('contracts', [])
-
-            total_contracts = len(contracts)
-
-            total_pages = (total_contracts + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
-
-            logger.info(f"✅ Найдено контрактов: {total_contracts}, страниц: {total_pages} (за {elapsed:.1f} сек)")
-
-            user_data[user_id] = {
-
-                'goszakupki_results': result,
-
-                'goszakupki_inn': text,
-
-                'goszakupki_page': 1,
-
-                'goszakupki_total_pages': total_pages
-
-            }
-
-            await send_goszakupki_page(message, user_id)
 
     ###########################################################################
     # ОБЩИЕ ВОПРОСЫ GIGACHAT (1 ШАГ)
@@ -544,7 +511,6 @@ async def handle_user_input(message: Message):
             parse_mode=None,
             reply_markup=get_main_inline_keyboard()
         )
-        # НЕ удаляем состояние, чтобы диалог продолжался
 
     ###########################################################################
     # СОСТАВЛЕНИЕ ДОКУМЕНТОВ (1 ШАГ)
@@ -629,7 +595,6 @@ def format_contract_details(details: dict, index: int, current_tab: str = 'all')
 
     text += f"<b>Всего документов: {total_docs}</b>\n"
     for tab_name, docs in docs_by_tab.items():
-        # Преобразуем названия вкладок
         tab_display = {
             'attachments': '📎 Вложения',
             'execution': '📊 Исполнение',
@@ -641,7 +606,6 @@ def format_contract_details(details: dict, index: int, current_tab: str = 'all')
 
     # Если выбрана конкретная вкладка, показываем документы
     if current_tab != 'all':
-        # Сопоставляем русское название с ключом
         tab_mapping = {
             'Вложения': 'attachments',
             'Исполнение': 'execution',
@@ -654,25 +618,21 @@ def format_contract_details(details: dict, index: int, current_tab: str = 'all')
             if docs:
                 text += f"<b>📂 Документы вкладки '{current_tab}':</b>\n\n"
                 for i, doc in enumerate(docs, 1):
-                    # Обрезаем слишком длинные названия
                     title = doc.get('title', 'Без названия')
                     if len(title) > 50:
                         title = title[:47] + "..."
 
-                    # Добавляем иконку в зависимости от типа
                     doc_type = doc.get('type', 'unknown')
                     icon = {
                         'PDF': '📕',
                         'RAR': '📦',
                         'XML': '📄',
-                        'HTML': '🌐',
                         'unknown': '📎'
                     }.get(doc_type, '📎')
 
                     text += f"{icon} <b>{i}.</b> {title}\n"
                     text += f"   <i>Тип: {doc_type}</i>\n"
 
-                    # Добавляем ссылку для скачивания
                     if doc.get('url'):
                         text += f"   🔗 <a href='{doc['url']}'>Скачать</a>\n"
 
@@ -686,10 +646,9 @@ def format_contract_details(details: dict, index: int, current_tab: str = 'all')
 
     return text
 
+
 def format_document_list(documents: List[Dict], tab_name: str, start_idx: int = 1) -> str:
     """Форматирует список документов компактно"""
-
-    # Иконка для вкладки
     tab_icons = {
         'Вложения': '📁',
         'Исполнение': '📊',
@@ -702,22 +661,18 @@ def format_document_list(documents: List[Dict], tab_name: str, start_idx: int = 
     text += "══════════════════════\n\n"
 
     for i, doc in enumerate(documents[:10], start_idx):
-        # Иконка типа документа
         doc_type = doc.get('type', 'unknown')
         type_icon = {
             'PDF': '📕',
             'RAR': '📦',
             'XML': '📄',
-            'HTML': '🌐',
             'unknown': '📎'
         }.get(doc_type, '📎')
 
-        # Название (обрезаем)
         title = doc.get('title', 'Документ')
         if len(title) > 60:
             title = title[:57] + "..."
 
-        # Добавляем размер для первых 5 документов
         if i <= 5 and doc.get('size'):
             text += f"{type_icon} <b>{i}.</b> {title} ({doc['size']})\n"
         else:
@@ -731,3 +686,109 @@ def format_document_list(documents: List[Dict], tab_name: str, start_idx: int = 
     text += "   чтобы получить ссылку для скачивания"
 
     return text
+
+
+async def process_search_type(callback: CallbackQuery, state: FSMContext):
+    """Обработка выбора типа поиска"""
+    data = await state.get_data()
+    inn = data.get('search_inn')
+    search_type = callback.data
+
+    if search_type == "search_cancel":
+        await state.clear()
+        await callback.message.edit_text("❌ Поиск отменен.")
+        return
+
+    type_text = "Поставщик" if search_type == "search_supplier" else "Заказчик"
+    await callback.message.edit_text(
+        f"🔍 Поиск контрактов для ИНН {inn}...\nТип: {type_text}"
+    )
+
+    loading_msg = await callback.message.answer("⏳ Загрузка... Это может занять до 30 секунд.")
+
+    try:
+        from bot.parsers.gos_zakupki_parser import GosZakupkiParser
+        parser = GosZakupkiParser()
+
+        if search_type == "search_supplier":
+            result = parser.search_by_supplier_inn(inn)
+            title = "📦 КОНТРАКТЫ (ПОСТАВЩИК)"
+        else:
+            result = parser.search_contracts_by_customer_inn(inn)
+            title = "🏛 КОНТРАКТЫ (ЗАКАЗЧИК)"
+
+        await loading_msg.delete()
+
+        if not result.get('success'):
+            await callback.message.answer(
+                f"❌ Ошибка: {result.get('error', 'Не удалось найти контракты')}\n\nИНН: `{inn}`",
+                parse_mode="Markdown",
+                reply_markup=get_repeat_search_keyboard()
+            )
+            await state.clear()
+            return
+
+        total = result.get('total', 0)
+        contracts = result.get('contracts', [])[:10]
+
+        if total == 0:
+            await callback.message.answer(
+                f"📭 Контрактов не найдено\n\nИНН: `{inn}`\nТип: {type_text}",
+                parse_mode="Markdown",
+                reply_markup=get_repeat_search_keyboard()
+            )
+            await state.clear()
+            return
+
+        response = f"📋 **{title}**\n\n"
+        response += f"🏢 **ИНН:** `{inn}`\n"
+
+        if search_type == "search_customer" and result.get('customer_name'):
+            response += f"📛 **Организация:** {result['customer_name']}\n"
+
+        response += f"📊 **Найдено контрактов:** {total}\n"
+        response += f"📄 **Показано:** {len(contracts)} из {total}\n\n"
+        response += "─" * 30 + "\n\n"
+
+        for i, contract in enumerate(contracts, 1):
+            response += f"**{i}. № {contract['number']}**\n"
+            response += f"📌 Статус: {contract['status']}\n"
+            response += f"💰 Сумма: {contract['price']}\n"
+            response += f"🏢 Заказчик: {contract['customer'][:80]}...\n"
+            response += f"📅 Дата: {contract['publish_date']}\n"
+            response += f"🔗 [Ссылка на контракт]({contract['url']})\n\n"
+
+            if len(response) > 3500:
+                response += "... (сообщение слишком длинное, показана часть)"
+                break
+
+        await callback.message.answer(
+            response,
+            parse_mode="Markdown",
+            reply_markup=get_repeat_search_keyboard(),
+            disable_web_page_preview=True
+        )
+
+    except Exception as e:
+        await loading_msg.delete()
+        await callback.message.answer(
+            f"❌ Ошибка при поиске: {str(e)[:200]}",
+            reply_markup=get_repeat_search_keyboard()
+        )
+
+    await state.clear()
+
+async def new_search(callback: CallbackQuery, state: FSMContext):
+    """Начать новый поиск"""
+    await state.clear()
+    await handle_contracts_search(callback.message, state)
+
+
+async def back_to_main_menu(callback: CallbackQuery, state: FSMContext):
+    """Вернуться в главное меню"""
+    await state.clear()
+    from bot.keyboards_inline import get_main_inline_keyboard
+    await callback.message.answer(
+        "🏠 Главное меню",
+        reply_markup=get_main_inline_keyboard()
+    )

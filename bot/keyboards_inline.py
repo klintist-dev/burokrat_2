@@ -162,6 +162,7 @@ def get_documents_keyboard(documents: List[Dict], contract_index: int, current_t
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
+
 def get_back_to_contracts_keyboard():
     """Простая клавиатура для возврата к списку"""
     buttons = [
@@ -175,6 +176,22 @@ def get_back_to_contracts_keyboard():
         )]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_back_to_contract_details_keyboard():
+    """Клавиатура для возврата к деталям контракта"""
+    buttons = [
+        [InlineKeyboardButton(
+            text="◀️ Назад к деталям контракта",
+            callback_data="back_to_contract_details"
+        )],
+        [InlineKeyboardButton(
+            text="🏠 Главное меню",
+            callback_data="menu_back"
+        )]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
 
 def get_document_link_keyboard(doc_url: str):
     """Клавиатура с кнопкой копирования ссылки"""
@@ -260,6 +277,7 @@ def get_back_to_tabs_keyboard(contract_index: int):
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
+
 def get_export_keyboard():
     """Клавиатура для выбора формата экспорта"""
     buttons = [
@@ -302,3 +320,32 @@ def add_export_button_to_contracts_keyboard(keyboard: InlineKeyboardMarkup) -> I
         InlineKeyboardButton(text="📊 Экспорт данных", callback_data="show_export_menu")
     ])
     return keyboard
+
+
+# ==================== НОВЫЕ КЛАВИАТУРЫ ДЛЯ ПОИСКА КОНТРАКТОВ ====================
+
+def get_search_type_keyboard():
+    """Клавиатура выбора типа поиска (Поставщик / Заказчик)"""
+    buttons = [
+        [
+            InlineKeyboardButton(text="📦 Поставщик", callback_data="search_supplier"),
+            InlineKeyboardButton(text="🏛 Заказчик", callback_data="search_customer")
+        ],
+        [
+            InlineKeyboardButton(text="❌ Отмена", callback_data="search_cancel")
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_repeat_search_keyboard():
+    """Клавиатура для повторного поиска (после завершения)"""
+    buttons = [
+        [
+            InlineKeyboardButton(text="🔍 Новый поиск", callback_data="new_search"),
+            InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+

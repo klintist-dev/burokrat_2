@@ -13,11 +13,22 @@ from bot.keyboards_inline import (
     get_pagination_keyboard,
     get_documents_keyboard,
     get_back_to_contracts_keyboard,
-    get_contract_details_keyboard
+    get_contract_details_keyboard,
+    get_export_keyboard,
+    get_back_to_contract_details_keyboard
 )
 
 from bot.states import user_states, user_data
-from bot.handlers.buttons import send_goszakupki_page, format_contract_details
+from bot.handlers.buttons import (
+    send_goszakupki_page,
+    format_contract_details,
+    handle_contracts_search,
+    process_search_type,
+    new_search,
+    back_to_main_menu
+)
+
+from aiogram.fsm.context import FSMContext
 
 from bot.services.exports.export_service import ExportService
 import os
@@ -99,6 +110,7 @@ async def callback_help(callback: CallbackQuery):
         "Я умею:\n"
         "🔍 <b>Найти ИНН по названию</b>\n"
         "📄 <b>Получить выписку из ЕГРЮЛ</b>\n"
+        "🔍 <b>Поиск контрактов на Госзакупках</b> (поставщик или заказчик)\n"
         "💬 <b>Отвечать на вопросы</b> (GigaChat)\n"
         "✍️ <b>Составлять документы</b> (GigaChat)\n"
         "🏛 <b>Искать контракты в госзакупках</b>\n\n"
@@ -108,17 +120,54 @@ async def callback_help(callback: CallbackQuery):
     )
 
 
+# ==================== ОБРАБОТЧИКИ ДЛЯ ПОИСКА КОНТРАКТОВ ====================
+
+@router.callback_query(F.data == "menu_goszakupki")
+async def callback_goszakupki(callback: CallbackQuery, state: FSMContext):
+    """Обработчик кнопки '🏛 Поиск в госзакупках'"""
+    user_id = callback.from_user.id
+    print(f"🔧 Нажата кнопка menu_goszakupki для user_id={user_id}")
+    await callback.answer()
+
+    # Передаём user_id и callback.message
+    await handle_contracts_search(callback.message, state, user_id)
+
+
+@router.callback_query(F.data.in_(["search_supplier", "search_customer", "search_cancel"]))
+async def search_type_callback(callback: CallbackQuery, state: FSMContext):
+    """Обработчик выбора типа поиска (Поставщик/Заказчик)"""
+    await callback.answer()
+    from bot.handlers.buttons import process_search_type
+    await process_search_type(callback, state)
+
+
+@router.callback_query(F.data == "new_search")
+async def new_search_callback(callback: CallbackQuery, state: FSMContext):
+    """Обработчик кнопки '🔍 Новый поиск'"""
+    await callback.answer()
+    from bot.handlers.buttons import new_search
+    await new_search(callback, state)
+
+
+@router.callback_query(F.data == "main_menu")
+async def main_menu_callback(callback: CallbackQuery, state: FSMContext):
+    """Обработчик кнопки '🏠 Главное меню'"""
+    await callback.answer()
+    from bot.handlers.buttons import back_to_main_menu
+    await back_to_main_menu(callback, state)
+
+
+# ==================== ОСТАЛЬНЫЕ ОБРАБОТЧИКИ (БЕЗ ИЗМЕНЕНИЙ) ====================
+
 @router.callback_query(F.data.startswith("download_doc_"))
 async def callback_download_document(callback: CallbackQuery):
     """Отправляет ссылку на документ (без скачивания)"""
     await callback.answer()
 
-    # Парсим callback_data: download_doc_1_2
     parts = callback.data.split("_")
     contract_index = int(parts[2])
     doc_index = int(parts[3]) - 1
 
-    # Получаем данные пользователя
     user_id = callback.from_user.id
     user_data_dict = user_data.get(user_id, {})
     current_contract = user_data_dict.get('current_contract', {})
@@ -145,7 +194,6 @@ async def callback_download_document(callback: CallbackQuery):
         )
         return
 
-    # Иконка для типа файла
     doc_icon = {
         'PDF': '📕',
         'RAR': '📦',
@@ -154,7 +202,6 @@ async def callback_download_document(callback: CallbackQuery):
         'unknown': '📎'
     }.get(doc_type, '📎')
 
-    # Создаём красивое сообщение со ссылкой
     text = (
         f"{doc_icon} <b>{doc_title}</b>\n\n"
         f"📂 Раздел: {source_tab}\n"
@@ -164,7 +211,6 @@ async def callback_download_document(callback: CallbackQuery):
         f"⚠️ <i>Ссылка действительна ограниченное время</i>"
     )
 
-    # Отправляем сообщение со ссылкой
     await callback.message.answer(
         text,
         parse_mode="HTML",
@@ -182,18 +228,15 @@ async def callback_back_to_contracts(callback: CallbackQuery):
     user_data_dict = user_data.get(user_id, {})
     page = user_data_dict.get('goszakupki_page', 1)
 
-    # Удаляем данные о текущем контракте
     if user_id in user_data and 'current_contract' in user_data[user_id]:
         del user_data[user_id]['current_contract']
 
-    # Отправляем текущую страницу заново
     await send_goszakupki_page(callback.message, user_id)
 
 
 @router.callback_query(F.data == "back_to_contract_details")
 async def callback_back_to_details(callback: CallbackQuery):
     """Возврат к деталям контракта"""
-    # Сразу отвечаем на callback
     await callback.answer()
 
     user_id = callback.from_user.id
@@ -218,29 +261,6 @@ async def callback_back_to_details(callback: CallbackQuery):
     )
 
 
-@router.callback_query(F.data == "menu_goszakupki")
-async def callback_goszakupki(callback: CallbackQuery):
-    """Поиск в госзакупках"""
-    # Сразу отвечаем на callback
-    await callback.answer()
-
-    user_id = callback.from_user.id
-    user_states[user_id] = "goszakupki"
-
-    content = Text(
-        Bold("🏛 Поиск в госзакупках\n\n"),
-        "Введите ИНН организации-поставщика\n",
-        "Я покажу все контракты, где она выступает исполнителем.\n\n",
-        Italic("Например: 472100471235, 7707083893"), "\n\n",
-        "Для отмены нажмите кнопку ниже"
-    )
-
-    await callback.message.answer(
-        **content.as_kwargs(),
-        reply_markup=get_cancel_inline_keyboard()
-    )
-
-
 @router.callback_query(F.data.startswith("goszakupki_page_"))
 async def callback_goszakupki_page(callback: CallbackQuery):
     """Переключение страниц госзакупок"""
@@ -258,7 +278,6 @@ async def callback_goszakupki_page(callback: CallbackQuery):
         return
 
     user_data[user_id]['goszakupki_page'] = page
-    from bot.handlers.buttons import send_goszakupki_page
     await send_goszakupki_page(callback.message, user_id)
 
 
@@ -312,10 +331,8 @@ async def callback_contract_details(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("tab_"))
 async def callback_switch_tab(callback: CallbackQuery):
     """Переключение между вкладками документов"""
-    # Сразу отвечаем на callback
     await callback.answer()
 
-    # Парсим callback_data: tab_1_Вложения
     parts = callback.data.split("_")
     if len(parts) < 3:
         logger.error(f"Неправильный формат tab_ callback: {callback.data}")
@@ -328,7 +345,6 @@ async def callback_switch_tab(callback: CallbackQuery):
     user_data_dict = user_data.get(user_id, {})
     current_contract = user_data_dict.get('current_contract', {})
 
-    # Проверяем, загружены ли детали
     if not current_contract or 'details' not in current_contract:
         await callback.message.answer(
             "❌ Сначала загрузите детали контракта",
@@ -338,7 +354,6 @@ async def callback_switch_tab(callback: CallbackQuery):
 
     details = current_contract.get('details', {})
 
-    # Проверяем существование вкладки
     docs_by_tab = details.get('documents_by_tab', {})
     tab_mapping = {
         'Вложения': 'attachments',
@@ -352,27 +367,20 @@ async def callback_switch_tab(callback: CallbackQuery):
         await callback.answer(f"Вкладка {tab_name} пуста", show_alert=False)
         return
 
-    # Получаем текущую вкладку
     current_tab = current_contract.get('current_tab', 'all')
 
-    # Проверяем, не нажата ли уже активная вкладка
     if current_tab == tab_name:
         logger.debug(f"Вкладка {tab_name} уже активна, ничего не меняем")
         await callback.answer(f"Вы уже на вкладке {tab_name}", show_alert=False)
         return
 
-    # Обновляем текущую вкладку
     if user_id not in user_data:
         user_data[user_id] = {}
     if 'current_contract' not in user_data[user_id]:
         user_data[user_id]['current_contract'] = {}
     user_data[user_id]['current_contract']['current_tab'] = tab_name
 
-    # Формируем текст с деталями
-    from bot.handlers.buttons import format_contract_details
     text = format_contract_details(details, contract_index, current_tab=tab_name)
-
-    # Получаем клавиатуру
     keyboard = get_documents_keyboard(
         details.get('documents', []),
         contract_index,
@@ -380,7 +388,6 @@ async def callback_switch_tab(callback: CallbackQuery):
     )
 
     try:
-        # Пытаемся отредактировать сообщение
         await callback.message.edit_text(
             text,
             parse_mode="HTML",
@@ -390,11 +397,9 @@ async def callback_switch_tab(callback: CallbackQuery):
     except Exception as e:
         if "message is not modified" in str(e):
             logger.info(f"⚠️ Сообщение не изменилось (уже на вкладке {tab_name})")
-            # Просто показываем уведомление
             await callback.answer(f"Вы уже на вкладке {tab_name}", show_alert=False)
         else:
             logger.error(f"❌ Ошибка при редактировании: {e}")
-            # Отправляем новое сообщение
             await callback.message.answer(
                 text,
                 parse_mode="HTML",
@@ -419,120 +424,6 @@ async def callback_copy_link(callback: CallbackQuery):
         f"<code>{link_part}</code>",
         parse_mode="HTML"
     )
-
-
-async def process_contract_details(message: Message, user_id: int, wait_msg_id: int):
-    """Фоновая задача для получения деталей контракта"""
-    import time
-    start_time = time.time()
-
-    # Создаём событие для отслеживания завершения загрузки
-    loading_complete = asyncio.Event()
-    progress_message = None
-
-    try:
-        # Запускаем индикатор прогресса в фоне
-        async def progress_indicator():
-            nonlocal progress_message
-            await asyncio.sleep(5)
-            # Проверяем, не завершилась ли уже загрузка
-            if not loading_complete.is_set():
-                try:
-                    progress_message = await message.answer(
-                        "⏳ Всё ещё загружаю детали контракта...\n"
-                        "<i>Обычно это занимает 10-15 секунд</i>",
-                        parse_mode="HTML"
-                    )
-                except:
-                    pass
-
-        # Запускаем индикатор
-        asyncio.create_task(progress_indicator())
-
-        logger.info(f"🔍 Начинаю загрузку деталей контракта для user_id={user_id}")
-
-        user_data_dict = user_data.get(user_id, {})
-        pending = user_data_dict.get('pending_contract', {})
-        contract_url = pending.get('url')
-        index = pending.get('index')
-
-        if not contract_url:
-            logger.error(f"❌ contract_url отсутствует для user_id={user_id}")
-            await message.answer("❌ Ошибка: контракт не найден")
-            return
-
-        logger.info(f"📡 Загружаю детали с URL: {contract_url[:100]}...")
-        from bot.parsers.gos_zakupki_parser import GosZakupkiParser
-        parser = GosZakupkiParser()
-        details = parser.get_contract_details(contract_url)
-
-        load_time = time.time() - start_time
-        logger.info(f"⏱ Детали загружены за {load_time:.2f} сек")
-
-        # Отмечаем, что загрузка завершена
-        loading_complete.set()
-
-        # Удаляем сообщение о загрузке (первое, от кнопки)
-        try:
-            await message.bot.delete_message(chat_id=message.chat.id, message_id=wait_msg_id)
-        except:
-            pass
-
-        # Удаляем сообщение индикатора прогресса, если оно было отправлено
-        if progress_message:
-            try:
-                await progress_message.delete()
-            except:
-                pass
-
-        if not details.get('success'):
-            logger.error(f"❌ Ошибка парсинга: {details.get('error')}")
-            await message.answer(
-                f"❌ Ошибка: {details.get('error', 'Неизвестная ошибка')}",
-                reply_markup=get_back_to_contracts_keyboard()
-            )
-            return
-
-        # Сохраняем детали
-        if user_id not in user_data:
-            user_data[user_id] = {}
-        user_data[user_id]['current_contract'] = {
-            'index': index,
-            'details': details,
-            'url': contract_url,
-            'current_tab': 'all'
-        }
-
-        # Очищаем pending
-        if 'pending_contract' in user_data[user_id]:
-            del user_data[user_id]['pending_contract']
-
-        # Формируем сообщение
-        text = format_contract_details(details, index, current_tab='all')
-
-        logger.info(f"✅ Детали контракта #{index} успешно загружены за {load_time:.2f} сек")
-
-        # Отправляем результат
-        await message.answer(
-            text,
-            parse_mode="HTML",
-            reply_markup=get_documents_keyboard(details.get('documents', []), index, current_tab='all')
-        )
-
-    except Exception as e:
-        logger.error(f"❌ Ошибка в process_contract_details: {e}", exc_info=True)
-        loading_complete.set()
-
-        if progress_message:
-            try:
-                await progress_message.delete()
-            except:
-                pass
-
-        await message.answer(
-            f"❌ Произошла ошибка при загрузке деталей",
-            reply_markup=get_back_to_contracts_keyboard()
-        )
 
 
 @router.callback_query(F.data == "show_export_menu")
@@ -581,7 +472,6 @@ async def callback_export_excel(callback: CallbackQuery):
             reply_markup=get_main_inline_keyboard()
         )
 
-        # Очищаем старые файлы
         export_service.cleanup_old_files()
 
     except Exception as e:
@@ -591,7 +481,6 @@ async def callback_export_excel(callback: CallbackQuery):
             reply_markup=get_main_inline_keyboard()
         )
     finally:
-        # Удаляем временный файл после отправки
         try:
             os.remove(filepath)
         except:
@@ -666,17 +555,14 @@ async def callback_export_all(callback: CallbackQuery):
     try:
         export_service = ExportService(user_id)
 
-        # Создаём файлы в разных форматах
         excel_file = await export_service.export_contracts_to_excel(contracts)
         csv_file = await export_service.export_contracts_to_csv(contracts)
 
-        # Отправляем Excel
         await callback.message.answer_document(
             FSInputFile(excel_file),
             caption="📊 Excel формат (с группировкой по годам)"
         )
 
-        # Отправляем CSV
         await callback.message.answer_document(
             FSInputFile(csv_file),
             caption="📄 CSV формат (табличные данные)"
@@ -696,7 +582,6 @@ async def callback_export_all(callback: CallbackQuery):
             reply_markup=get_main_inline_keyboard()
         )
     finally:
-        # Очищаем файлы
         try:
             os.remove(excel_file)
             os.remove(csv_file)
@@ -772,3 +657,106 @@ async def callback_menu_back(callback: CallbackQuery):
         **content.as_kwargs(),
         reply_markup=get_main_inline_keyboard()
     )
+
+
+async def process_contract_details(message: Message, user_id: int, wait_msg_id: int):
+    """Фоновая задача для получения деталей контракта"""
+    import time
+    start_time = time.time()
+
+    loading_complete = asyncio.Event()
+    progress_message = None
+
+    try:
+        async def progress_indicator():
+            nonlocal progress_message
+            await asyncio.sleep(5)
+            if not loading_complete.is_set():
+                try:
+                    progress_message = await message.answer(
+                        "⏳ Всё ещё загружаю детали контракта...\n"
+                        "<i>Обычно это занимает 10-15 секунд</i>",
+                        parse_mode="HTML"
+                    )
+                except:
+                    pass
+
+        asyncio.create_task(progress_indicator())
+
+        logger.info(f"🔍 Начинаю загрузку деталей контракта для user_id={user_id}")
+
+        user_data_dict = user_data.get(user_id, {})
+        pending = user_data_dict.get('pending_contract', {})
+        contract_url = pending.get('url')
+        index = pending.get('index')
+
+        if not contract_url:
+            logger.error(f"❌ contract_url отсутствует для user_id={user_id}")
+            await message.answer("❌ Ошибка: контракт не найден")
+            return
+
+        logger.info(f"📡 Загружаю детали с URL: {contract_url[:100]}...")
+        from bot.parsers.gos_zakupki_parser import GosZakupkiParser
+        parser = GosZakupkiParser()
+        details = parser.get_contract_details(contract_url)
+
+        load_time = time.time() - start_time
+        logger.info(f"⏱ Детали загружены за {load_time:.2f} сек")
+
+        loading_complete.set()
+
+        try:
+            await message.bot.delete_message(chat_id=message.chat.id, message_id=wait_msg_id)
+        except:
+            pass
+
+        if progress_message:
+            try:
+                await progress_message.delete()
+            except:
+                pass
+
+        if not details.get('success'):
+            logger.error(f"❌ Ошибка парсинга: {details.get('error')}")
+            await message.answer(
+                f"❌ Ошибка: {details.get('error', 'Неизвестная ошибка')}",
+                reply_markup=get_back_to_contracts_keyboard()
+            )
+            return
+
+        if user_id not in user_data:
+            user_data[user_id] = {}
+        user_data[user_id]['current_contract'] = {
+            'index': index,
+            'details': details,
+            'url': contract_url,
+            'current_tab': 'all'
+        }
+
+        if 'pending_contract' in user_data[user_id]:
+            del user_data[user_id]['pending_contract']
+
+        text = format_contract_details(details, index, current_tab='all')
+
+        logger.info(f"✅ Детали контракта #{index} успешно загружены за {load_time:.2f} сек")
+
+        await message.answer(
+            text,
+            parse_mode="HTML",
+            reply_markup=get_documents_keyboard(details.get('documents', []), index, current_tab='all')
+        )
+
+    except Exception as e:
+        logger.error(f"❌ Ошибка в process_contract_details: {e}", exc_info=True)
+        loading_complete.set()
+
+        if progress_message:
+            try:
+                await progress_message.delete()
+            except:
+                pass
+
+        await message.answer(
+            f"❌ Произошла ошибка при загрузке деталей",
+            reply_markup=get_back_to_contracts_keyboard()
+        )
