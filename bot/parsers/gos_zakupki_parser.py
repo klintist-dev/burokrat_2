@@ -209,30 +209,29 @@ class GosZakupkiParser:
         try:
             logger.info(f"🔍 Поиск заказчика по ИНН: {inn}")
 
-            # ШАГ 1: Открываем страницу выбора организации (как при нажатии кнопки "Выбрать")
-            choose_url = f"{self.BASE_URL}/epz/organization/chooseOrganization/chooseOrganizationDialogModal.html"
-
-            params = {
+            # ШАГ 1: Получаем cookies и CSRF-токен
+            dialog_url = f"{self.BASE_URL}/epz/organization/chooseOrganization/chooseOrganizationDialogModal.html"
+            dialog_params = {
                 'inputId': 'customer',
                 'page': '1',
                 'organizationType': 'ALL',
                 'placeOfSearch': 'FZ_94',
                 'withOutLaw': ''
             }
-
-            # Получаем HTML с формой
-            response = self._make_request('GET', choose_url, params=params)
+            
+            response = self._make_request('GET', dialog_url, params=dialog_params)
             if not self._check_response(response):
-                return {'error': 'Ошибка загрузки формы выбора', 'success': False}
-
-            # Получаем CSRF токен из формы
+                return {'error': 'Ошибка загрузки формы', 'success': False}
+            
+            # Извлекаем CSRF-токен
             soup = BeautifulSoup(response.text, 'lxml')
             csrf_input = soup.find('input', {'name': '_csrf'})
             csrf_token = csrf_input.get('value', '') if csrf_input else ''
-
-            # ШАГ 2: Отправляем поисковый запрос (как при вводе ИНН и нажатии "Найти")
+            logger.info(f"CSRF токен получен: {csrf_token[:20]}...")
+            
+            # ШАГ 2: Отправляем поисковый запрос с CSRF-токеном
             table_url = f"{self.BASE_URL}/epz/organization/chooseOrganization/chooseOrganizationTableModal.html"
-
+            
             table_params = {
                 'searchString': inn,
                 'inputId': 'customer',
@@ -242,53 +241,74 @@ class GosZakupkiParser:
                 'placeOfSearch': 'FZ_94',
                 'isBm25Search': 'true'
             }
-
-            response = self._make_request('GET', table_url, params=table_params)
-
+            
+            # Добавляем CSRF-токен в заголовки или параметры
+            headers = {
+                'X-CSRF-TOKEN': csrf_token,
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+            
+            response = self._make_request('GET', table_url, params=table_params, headers=headers)
+            
             if not self._check_response(response):
                 return {'error': 'Ошибка поиска заказчика', 'success': False}
-
+            
+            # Сохраняем HTML для отладки
+            with open('/tmp/debug_customer.html', 'w', encoding='utf-8') as f:
+                f.write(response.text)
+            
             soup = BeautifulSoup(response.text, 'lxml')
-
-            # Ищем таблицу с результатами
-            table = soup.find('table', class_='registry')
-            if not table:
+            
+            # Ищем radio-кнопки
+            radios = soup.find_all('input', {'type': 'radio'})
+            if not radios:
+                # Пробуем найти скрытые поля или другие элементы
+                radios = soup.find_all('input', {'name': 'selectedOrganizationId'})
+            
+            if not radios:
+                logger.warning("Radio кнопки не найдены. HTML сохранён в /tmp/debug_customer.html")
                 return {'error': 'Организация не найдена', 'success': False}
-
-            rows = table.find_all('tr')
+            
             customers = []
-
-            for row in rows[1:]:  # Пропускаем заголовок
-                cols = row.find_all('td')
-                if len(cols) >= 3:
-                    # Извлекаем ID организации из radio button
-                    radio = row.find('input', type='radio')
-                    org_id = radio.get('value', '') if radio else ''
-
-                    # Название (обычно в первой колонке, может быть ссылкой)
-                    name_elem = cols[0].find('a')
-                    name = name_elem.text.strip() if name_elem else cols[0].text.strip()
-
-                    # ИНН (во второй колонке)
-                    inn_value = cols[1].text.strip() if len(cols) > 1 else ''
-
-                    # Адрес (в третьей колонке)
-                    address = cols[2].text.strip() if len(cols) > 2 else ''
-
-                    customers.append({
-                        'id': org_id,
-                        'name': name,
-                        'inn': inn_value,
-                        'address': address
-                    })
-
+            for radio in radios:
+                org_id = radio.get('value', '')
+                if not org_id:
+                    continue
+                
+                row = radio.find_parent('tr')
+                if row:
+                    cols = row.find_all('td')
+                    if len(cols) >= 3:
+                        name = cols[0].get_text(strip=True)
+                        inn_value = cols[1].get_text(strip=True)
+                        address = cols[2].get_text(strip=True)
+                    else:
+                        name = row.get_text(strip=True)[:100]
+                        inn_value = inn
+                        address = ''
+                else:
+                    name = f"Организация с ИНН {inn}"
+                    inn_value = inn
+                    address = ''
+                
+                customers.append({
+                    'id': org_id,
+                    'name': name,
+                    'inn': inn_value,
+                    'address': address
+                })
+            
+            if not customers:
+                return {'error': 'Организация не найдена', 'success': False}
+            
+            logger.info(f"✅ Найдено {len(customers)} организаций")
             return {
                 'inn': inn,
                 'success': True,
                 'total': len(customers),
                 'customers': customers
             }
-
+            
         except Exception as e:
             logger.error(f"❌ Ошибка поиска заказчика: {e}")
             return {'error': str(e), 'success': False}
