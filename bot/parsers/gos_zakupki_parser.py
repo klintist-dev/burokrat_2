@@ -263,34 +263,47 @@ class GosZakupkiParser:
         Парсит одну карточку контракта
         """
         try:
-            number_elem = card.select_one(".registry-entry__header-mid__number a")
+            number_elem = card.select_one('.registry-entry__header-mid__number a')
             if not number_elem:
                 return None
 
             number = number_elem.text.strip()
-            url = number_elem.get("href", "")
-            if url.startswith("/"):
-                url = urljoin(self.BASE_URL, url)
+            relative_url = number_elem.get('href', '')
+            url = urljoin(self.BASE_URL, relative_url) if relative_url else ''
 
-            status_elem = card.select_one(".registry-entry__header-mid__title")
-            status = status_elem.text.strip() if status_elem else ""
+            status_elem = card.select_one('.registry-entry__header-mid__title')
+            status = status_elem.text.strip() if status_elem else ''
 
-            customer_elem = card.select_one(".registry-entry__body-href a")
-            customer = customer_elem.text.strip() if customer_elem else ""
+            customer_elem = card.select_one('.registry-entry__body-href a')
+            customer = customer_elem.text.strip() if customer_elem else ''
 
-            price_elem = card.select_one(".price-block__value")
-            price = price_elem.text.strip() if price_elem else ""
+            price_elem = card.select_one('.price-block__value')
+            price = price_elem.text.strip() if price_elem else ''
+
+            # ========== НОВЫЕ ПОЛЯ ==========
+            # Дата публикации и обновления
+            dates = card.select('.data-block .row .data-block__value')
+            publish_date = dates[0].text.strip() if len(dates) > 0 else ''
+            update_date = dates[1].text.strip() if len(dates) > 1 else ''
+
+            # Объект закупки
+            object_elem = card.select_one('.lots-wrap-content__body--item .lots-wrap-content__body__val span')
+            object_name = object_elem.text.strip() if object_elem else ''
+            # ===============================
 
             return {
-                "number": number,
-                "url": url,
-                "status": status,
-                "customer": customer,
-                "price": price,
+                'number': number,
+                'url': url,
+                'status': status,
+                'customer': customer,
+                'price': price,
+                'publish_date': publish_date,
+                'update_date': update_date,
+                'object': object_name[:200] if object_name else ''  # ограничим длину
             }
 
         except Exception as e:
-            logger.debug(f"Ошибка парсинга карточки: {e}")
+            logger.error(f"Ошибка парсинга карточки: {e}")
             return None
 
     def _parse_total_count(self, soup) -> int:
